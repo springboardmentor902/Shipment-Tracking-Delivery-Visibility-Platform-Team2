@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useMemo, useState } from "react";
+import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8081";
 
@@ -20,6 +20,90 @@ type Pod = {
   verificationStatus: string;
   deliveredAt?: string;
 };
+
+type LeafletMap = { remove: () => void; setView: (point: [number, number], zoom: number) => LeafletMap; fitBounds: (bounds: unknown, options?: { padding: [number, number] }) => void };
+type LeafletLibrary = {
+  map: (element: HTMLDivElement) => LeafletMap;
+  tileLayer: (url: string, options: { attribution: string }) => { addTo: (map: LeafletMap) => void };
+  marker: (point: [number, number]) => { addTo: (map: LeafletMap) => { bindPopup: (text: string) => void } };
+  polyline: (points: [number, number][], options: { color: string; weight: number }) => { addTo: (map: LeafletMap) => { getBounds: () => unknown } };
+};
+
+declare global {
+  interface Window { L?: LeafletLibrary }
+}
+
+function DeliveryMap({ shipment }: { shipment?: Shipment }) {
+  const mapElement = useRef<HTMLDivElement>(null);
+  const mapInstance = useRef<LeafletMap>();
+  const [mapMessage, setMapMessage] = useState("Load a shipment to see its OpenStreetMap route.");
+
+  useEffect(() => {
+    if (!shipment || !mapElement.current) return;
+    let cancelled = false;
+
+    async function loadLeaflet() {
+      if (window.L) return;
+      if (!document.querySelector('link[data-leaflet]')) {
+        const style = document.createElement("link");
+        style.rel = "stylesheet";
+        style.href = "https://unpkg.com/leaflet@1.9.4/dist/leaflet.css";
+        style.dataset.leaflet = "true";
+        document.head.appendChild(style);
+      }
+      await new Promise<void>((resolve, reject) => {
+        const script = document.createElement("script");
+        script.src = "https://unpkg.com/leaflet@1.9.4/dist/leaflet.js";
+        script.onload = () => resolve();
+        script.onerror = () => reject(new Error("Could not load the map library."));
+        document.body.appendChild(script);
+      });
+    }
+
+    async function findAddress(address: string) {
+      const response = await fetch(`https://nominatim.openstreetmap.org/search?format=jsonv2&limit=1&q=${encodeURIComponent(address)}`);
+      const places = await response.json();
+      if (!places.length) throw new Error("Address not found on OpenStreetMap.");
+      return [Number(places[0].lat), Number(places[0].lon)] as [number, number];
+    }
+
+    async function showMap() {
+      try {
+        const element = mapElement.current;
+        if (!element) return;
+        setMapMessage("Finding pickup and delivery locations...");
+        await loadLeaflet();
+        const [origin, destination] = await Promise.all([findAddress(shipment.pickupAddress), findAddress(shipment.deliveryAddress)]);
+        if (cancelled) return;
+        mapInstance.current?.remove();
+        if (!window.L) throw new Error("Map library is not ready.");
+        const map = window.L.map(element).setView(origin, 7);
+        mapInstance.current = map;
+        window.L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", { attribution: "© OpenStreetMap contributors" }).addTo(map);
+        window.L.marker(origin).addTo(map).bindPopup("Pickup");
+        window.L.marker(destination).addTo(map).bindPopup("Delivery");
+        const routeResponse = await fetch(`https://router.project-osrm.org/route/v1/driving/${origin[1]},${origin[0]};${destination[1]},${destination[0]}?overview=full&geometries=geojson`);
+        const routeData = await routeResponse.json();
+        const coordinates = routeData.routes?.[0]?.geometry?.coordinates;
+        if (coordinates) {
+          const line = coordinates.map(([longitude, latitude]: [number, number]) => [latitude, longitude]);
+          const routeLine = window.L.polyline(line, { color: "#2563eb", weight: 5 }).addTo(map);
+          map.fitBounds(routeLine.getBounds(), { padding: [25, 25] });
+        } else {
+          map.fitBounds([origin, destination], { padding: [25, 25] });
+        }
+        setMapMessage("OpenStreetMap route loaded.");
+      } catch (error) {
+        setMapMessage(error instanceof Error ? error.message : "Could not load the map.");
+      }
+    }
+
+    showMap();
+    return () => { cancelled = true; mapInstance.current?.remove(); mapInstance.current = undefined; };
+  }, [shipment]);
+
+  return <section className="card map-card"><h2>Live route map</h2><div className="map" ref={mapElement} /><small>{mapMessage}</small></section>;
+}
 
 async function request<T>(path: string, token: string, options: RequestInit = {}) {
   const headers = new Headers(options.headers);
@@ -231,6 +315,8 @@ export default function Home() {
       <section className="card"><h2>Track shipment</h2><div className="search"><input value={shipmentId} onChange={(event) => setShipmentId(event.target.value)} placeholder="Shipment ID" /><button onClick={loadShipment}>Load</button></div>{shipment && <div className="shipment"><strong>{shipment.trackingNumber}</strong><p>Status: <span className="chip">{shipment.status}</span></p><p>{shipment.pickupAddress} → {shipment.deliveryAddress}</p><p>{shipment.packages.length} package(s)</p></div>}
         <div className={`eta ${riskStyle(eta?.delayRiskScore)}`}><h3>ETA and delay risk</h3>{eta ? <><p><strong>{new Date(eta.predictedDeliveryTime).toLocaleString()}</strong></p><p>Delay risk: <strong>{eta.delayRiskScore}/10</strong> · Confidence: <strong>{eta.confidenceScore}%</strong></p><small>Why: {eta.factors}</small></> : <p>ETA appears after a route and tracking update are added.</p>}</div></section>
     </section>
+
+    <DeliveryMap shipment={shipment} />
 
     <section className="grid"><section className="card"><h2>Live delivery updates</h2>{!events.length && <p>No tracking events loaded yet.</p>}<ol className="timeline">{events.map((event) => <li key={event.id}><strong>{event.status}</strong><span>{event.location || "Location not provided"}</span><small>{new Date(event.eventTimestamp).toLocaleString()}</small></li>)}</ol></section>
       <section className="card pod"><h2>Proof of delivery</h2>{pod ? <><p>Received by: <strong>{pod.deliveredToName}</strong></p><p>Verification: <span className="chip">{pod.verificationStatus}</span></p>{pod.deliveryNotes && <p>Notes: {pod.deliveryNotes}</p>}<div className="proof-images">{pod.signatureUrl && <img src={`${API_URL}${pod.signatureUrl}`} alt="Delivery signature" />}{pod.photoUrl && <img src={`${API_URL}${pod.photoUrl}`} alt="Delivery proof" />}</div></> : <form className="form" onSubmit={submitPod}><p>For logistics operators: select a shipment above, then upload proof.</p><input required value={recipient} onChange={(event) => setRecipient(event.target.value)} placeholder="Recipient name" /><input required type="file" accept="image/*" onChange={(event) => setPodFile(event.target.files?.[0])} /><textarea value={deliveryNotes} onChange={(event) => setDeliveryNotes(event.target.value)} placeholder="Delivery notes (optional)" /><button type="submit">Complete delivery</button></form>}</section></section>
