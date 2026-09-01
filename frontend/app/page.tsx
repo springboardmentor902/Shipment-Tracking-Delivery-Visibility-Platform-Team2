@@ -5,7 +5,7 @@ import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8081";
 
 type PackageItem = { description: string; quantity: number; fragile: boolean };
-type Shipment = { id: number; trackingNumber: string; status: string; pickupAddress: string; deliveryAddress: string; packages: PackageItem[] };
+type Shipment = { id: number; trackingNumber: string; status: string; pickupAddress: string; deliveryAddress: string; packages: PackageItem[]; createdAt?: string; estimatedDeliveryDate?: string };
 type Eta = { predictedDeliveryTime: string; delayRiskScore: number; confidenceScore: number; factors: string };
 type TrackingEvent = { id: number; status: string; location?: string; eventTimestamp: string };
 type Notification = { id: number; title: string; message: string; readAt?: string };
@@ -120,6 +120,13 @@ async function request<T>(path: string, token: string, options: RequestInit = {}
 function riskStyle(score?: number) {
   if (score === undefined) return "";
   return score >= 7 ? "high" : score >= 4 ? "medium" : "low";
+}
+
+function expectedArrival(shipment?: Shipment) {
+  if (!shipment) return undefined;
+  if (shipment.estimatedDeliveryDate) return new Date(shipment.estimatedDeliveryDate);
+  if (shipment.createdAt) return new Date(new Date(shipment.createdAt).getTime() + 4 * 24 * 60 * 60 * 1000);
+  return undefined;
 }
 
 export default function Home() {
@@ -316,7 +323,7 @@ export default function Home() {
     <section className="grid"><form className="card form" onSubmit={createShipment}><h2>Create shipment</h2><input name="senderName" required placeholder="Sender name" /><input name="receiverName" required placeholder="Receiver name" /><input name="pickupAddress" required placeholder="Pickup address" /><input name="deliveryAddress" required placeholder="Delivery address" /><select name="priority" defaultValue="STANDARD"><option value="STANDARD">Standard</option><option value="EXPRESS">Express</option></select><h3>Packages</h3>
       {packages.map((item, index) => <div className="package" key={index}><input value={item.description} onChange={(event) => changePackage(index, { description: event.target.value })} placeholder="Package description" /><input type="number" min="1" value={item.quantity} onChange={(event) => changePackage(index, { quantity: Number(event.target.value) })} /><label><input type="checkbox" checked={item.fragile} onChange={(event) => changePackage(index, { fragile: event.target.checked })} /> Fragile</label>{packages.length > 1 && <button type="button" className="soft" onClick={() => setPackages((current) => current.filter((_, itemIndex) => itemIndex !== index))}>Remove</button>}</div>)}
       <button type="button" className="soft" onClick={() => setPackages((current) => [...current, { description: "", quantity: 1, fragile: false }])}>+ Add package</button><button type="submit">Create shipment</button></form>
-      <section className="card"><h2>Track shipment</h2><div className="search"><input value={shipmentId} onChange={(event) => setShipmentId(event.target.value)} placeholder="Shipment ID" /><button onClick={loadShipment}>Load</button></div>{shipment && <div className="shipment"><strong>{shipment.trackingNumber}</strong><p>Status: <span className="chip">{shipment.status}</span></p><p>{shipment.pickupAddress} → {shipment.deliveryAddress}</p><p>{shipment.packages.length} package(s)</p></div>}
+      <section className="card"><h2>Track shipment</h2><div className="search"><input value={shipmentId} onChange={(event) => setShipmentId(event.target.value)} placeholder="Shipment ID" /><button onClick={loadShipment}>Load</button></div>{shipment && <div className="shipment"><strong>{shipment.trackingNumber}</strong><p>Status: <span className="chip">{shipment.status}</span></p><p>{shipment.pickupAddress} → {shipment.deliveryAddress}</p><p>{shipment.packages.length} package(s)</p>{expectedArrival(shipment) && <p>Expected arrival: <strong>{expectedArrival(shipment)?.toLocaleString()}</strong></p>}</div>}
         <div className={`eta ${riskStyle(eta?.delayRiskScore)}`}><h3>ETA and delay risk</h3>{eta ? <><p>Expected arrival: <strong>{new Date(eta.predictedDeliveryTime).toLocaleString()}</strong></p><p>Delay risk: <strong>{eta.delayRiskScore}/10</strong> · Confidence: <strong>{eta.confidenceScore}%</strong></p><small>Why: {eta.factors}</small></> : mapEstimate ? <><p>Approximate expected arrival: <strong>{new Date(mapEstimate.expectedArrival).toLocaleString()}</strong></p><small>Based on the current OpenStreetMap route time of about {mapEstimate.minutes} minutes.</small></> : <p>ETA appears after a route and tracking update are added.</p>}</div></section>
     </section>
 

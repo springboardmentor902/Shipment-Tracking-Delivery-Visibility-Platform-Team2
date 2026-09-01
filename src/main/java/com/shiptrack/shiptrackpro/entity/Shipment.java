@@ -81,6 +81,12 @@ public class Shipment {
             priority = "STANDARD";
         }
 
+        if (estimatedDeliveryDate == null) {
+            estimatedDeliveryDate = now.plusDays(
+                    "EXPRESS".equalsIgnoreCase(priority) ? 2 : 4
+            );
+        }
+
     }
 
     @PreUpdate
