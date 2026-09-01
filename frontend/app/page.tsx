@@ -33,7 +33,7 @@ declare global {
   interface Window { L?: LeafletLibrary }
 }
 
-function DeliveryMap({ shipment }: { shipment?: Shipment }) {
+function DeliveryMap({ shipment, onRouteReady }: { shipment?: Shipment; onRouteReady: (estimate?: { minutes: number; expectedArrival: string }) => void }) {
   const mapElement = useRef<HTMLDivElement>(null);
   const mapInstance = useRef<LeafletMap>();
   const [mapMessage, setMapMessage] = useState("Load a shipment to see its OpenStreetMap route.");
@@ -41,6 +41,7 @@ function DeliveryMap({ shipment }: { shipment?: Shipment }) {
   useEffect(() => {
     if (!shipment || !mapElement.current) return;
     let cancelled = false;
+    onRouteReady(undefined);
 
     async function loadLeaflet() {
       if (window.L) return;
@@ -89,6 +90,8 @@ function DeliveryMap({ shipment }: { shipment?: Shipment }) {
           const line = coordinates.map(([longitude, latitude]: [number, number]) => [latitude, longitude]);
           const routeLine = window.L.polyline(line, { color: "#2563eb", weight: 5 }).addTo(map);
           map.fitBounds(routeLine.getBounds(), { padding: [25, 25] });
+          const minutes = Math.round(routeData.routes[0].duration / 60);
+          onRouteReady({ minutes, expectedArrival: new Date(Date.now() + minutes * 60000).toISOString() });
         } else {
           map.fitBounds([origin, destination], { padding: [25, 25] });
         }
@@ -100,7 +103,7 @@ function DeliveryMap({ shipment }: { shipment?: Shipment }) {
 
     showMap();
     return () => { cancelled = true; mapInstance.current?.remove(); mapInstance.current = undefined; };
-  }, [shipment]);
+  }, [shipment, onRouteReady]);
 
   return <section className="card map-card"><h2>Live route map</h2><div className="map" ref={mapElement} /><small>{mapMessage}</small></section>;
 }
@@ -144,6 +147,7 @@ export default function Home() {
   const [trafficCondition, setTrafficCondition] = useState("NORMAL");
   const [trackingStatus, setTrackingStatus] = useState("IN_TRANSIT");
   const [trackingLocation, setTrackingLocation] = useState("");
+  const [mapEstimate, setMapEstimate] = useState<{ minutes: number; expectedArrival: string }>();
   const unreadCount = useMemo(() => notifications.filter((item) => !item.readAt).length, [notifications]);
 
   async function login(event: FormEvent<HTMLFormElement>) {
@@ -313,15 +317,15 @@ export default function Home() {
       {packages.map((item, index) => <div className="package" key={index}><input value={item.description} onChange={(event) => changePackage(index, { description: event.target.value })} placeholder="Package description" /><input type="number" min="1" value={item.quantity} onChange={(event) => changePackage(index, { quantity: Number(event.target.value) })} /><label><input type="checkbox" checked={item.fragile} onChange={(event) => changePackage(index, { fragile: event.target.checked })} /> Fragile</label>{packages.length > 1 && <button type="button" className="soft" onClick={() => setPackages((current) => current.filter((_, itemIndex) => itemIndex !== index))}>Remove</button>}</div>)}
       <button type="button" className="soft" onClick={() => setPackages((current) => [...current, { description: "", quantity: 1, fragile: false }])}>+ Add package</button><button type="submit">Create shipment</button></form>
       <section className="card"><h2>Track shipment</h2><div className="search"><input value={shipmentId} onChange={(event) => setShipmentId(event.target.value)} placeholder="Shipment ID" /><button onClick={loadShipment}>Load</button></div>{shipment && <div className="shipment"><strong>{shipment.trackingNumber}</strong><p>Status: <span className="chip">{shipment.status}</span></p><p>{shipment.pickupAddress} → {shipment.deliveryAddress}</p><p>{shipment.packages.length} package(s)</p></div>}
-        <div className={`eta ${riskStyle(eta?.delayRiskScore)}`}><h3>ETA and delay risk</h3>{eta ? <><p><strong>{new Date(eta.predictedDeliveryTime).toLocaleString()}</strong></p><p>Delay risk: <strong>{eta.delayRiskScore}/10</strong> · Confidence: <strong>{eta.confidenceScore}%</strong></p><small>Why: {eta.factors}</small></> : <p>ETA appears after a route and tracking update are added.</p>}</div></section>
+        <div className={`eta ${riskStyle(eta?.delayRiskScore)}`}><h3>ETA and delay risk</h3>{eta ? <><p>Expected arrival: <strong>{new Date(eta.predictedDeliveryTime).toLocaleString()}</strong></p><p>Delay risk: <strong>{eta.delayRiskScore}/10</strong> · Confidence: <strong>{eta.confidenceScore}%</strong></p><small>Why: {eta.factors}</small></> : mapEstimate ? <><p>Approximate expected arrival: <strong>{new Date(mapEstimate.expectedArrival).toLocaleString()}</strong></p><small>Based on the current OpenStreetMap route time of about {mapEstimate.minutes} minutes.</small></> : <p>ETA appears after a route and tracking update are added.</p>}</div></section>
     </section>
 
-    <DeliveryMap shipment={shipment} />
+    <DeliveryMap shipment={shipment} onRouteReady={setMapEstimate} />
 
     <section className="grid"><section className="card"><h2>Live delivery updates</h2>{!events.length && <p>No tracking events loaded yet.</p>}<ol className="timeline">{events.map((event) => <li key={event.id}><strong>{event.status}</strong><span>{event.location || "Location not provided"}</span><small>{new Date(event.eventTimestamp).toLocaleString()}</small></li>)}</ol></section>
       <section className="card pod"><h2>Proof of delivery</h2>{pod ? <><p>Received by: <strong>{pod.deliveredToName}</strong></p><p>Verification: <span className="chip">{pod.verificationStatus}</span></p>{pod.deliveryNotes && <p>Notes: {pod.deliveryNotes}</p>}<div className="proof-images">{pod.signatureUrl && <img src={`${API_URL}${pod.signatureUrl}`} alt="Delivery signature" />}{pod.photoUrl && <img src={`${API_URL}${pod.photoUrl}`} alt="Delivery proof" />}</div></> : <form className="form" onSubmit={submitPod}><p>For logistics operators: select a shipment above, then upload proof.</p><input required value={recipient} onChange={(event) => setRecipient(event.target.value)} placeholder="Recipient name" /><input required type="file" accept="image/*" onChange={(event) => setPodFile(event.target.files?.[0])} /><textarea value={deliveryNotes} onChange={(event) => setDeliveryNotes(event.target.value)} placeholder="Delivery notes (optional)" /><button type="submit">Complete delivery</button></form>}</section></section>
 
-    <section className="grid"><form className="card form" onSubmit={createRoute}><h2>Admin/Operator: create route</h2><p>Create a route after loading a shipment. Google Maps then calculates distance and time.</p><select value={trafficCondition} onChange={(event) => setTrafficCondition(event.target.value)}><option value="NORMAL">Normal traffic</option><option value="HEAVY">Heavy traffic</option><option value="LIGHT">Light traffic</option></select><button type="submit">Create route</button>{route && <p>Distance: <strong>{route.distanceKm ?? "Not available"}</strong> km<br />Estimated time: <strong>{route.estimatedTimeMinutes ?? "Not available"}</strong> minutes</p>}</form>
+    <section className="grid"><form className="card form" onSubmit={createRoute}><h2>Admin/Operator: create route</h2><p>Create a route after loading a shipment. The free OpenStreetMap view appears after you load the shipment. Distance and time are optional route details.</p><select value={trafficCondition} onChange={(event) => setTrafficCondition(event.target.value)}><option value="NORMAL">Normal traffic</option><option value="HEAVY">Heavy traffic</option><option value="LIGHT">Light traffic</option></select><button type="submit">Create route</button>{route && <p>Distance: <strong>{route.distanceKm ?? "Not available"}</strong> km<br />Estimated time: <strong>{route.estimatedTimeMinutes ?? "Not available"}</strong> minutes</p>}</form>
       <form className="card form" onSubmit={addTrackingEvent}><h2>Admin/Operator: add tracking update</h2><select value={trackingStatus} onChange={(event) => setTrackingStatus(event.target.value)}><option value="PICKED_UP">Picked up</option><option value="IN_TRANSIT">In transit</option><option value="OUT_FOR_DELIVERY">Out for delivery</option></select><input value={trackingLocation} onChange={(event) => setTrackingLocation(event.target.value)} placeholder="Current location, for example: Meerut" /><button type="submit">Add tracking update</button><small>After adding it, click Load above to refresh the ETA.</small></form></section>
 
     <section className="grid"><section className="card"><h2>Support/Admin verification queue</h2><p>Use a Support Agent or Admin login token, then load the proofs waiting for review.</p><button onClick={loadPendingProofs}>Load pending proofs</button>{!pendingProofs.length && <p>No pending proofs are loaded.</p>}<div className="queue">{pendingProofs.map((proof) => <button className="queue-item" key={proof.shipmentId} onClick={() => openProof(proof)}><strong>Shipment #{proof.shipmentId}</strong><span>Received by {proof.deliveredToName}</span><small>{proof.deliveredAt ? new Date(proof.deliveredAt).toLocaleString() : "Date not available"}</small></button>)}</div></section>
