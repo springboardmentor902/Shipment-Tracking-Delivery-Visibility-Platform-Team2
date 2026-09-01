@@ -12,6 +12,7 @@ import com.shiptrack.shiptrackpro.repository.UserRepository;
 import com.shiptrack.shiptrackpro.service.CurrentUserService;
 import com.shiptrack.shiptrackpro.service.ShipmentService;
 import com.shiptrack.shiptrackpro.service.ShipmentAccessService;
+import com.shiptrack.shiptrackpro.service.NotificationService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
@@ -32,6 +33,7 @@ public class ShipmentServiceImpl implements ShipmentService {
     private final UserRepository userRepository;
     private final CurrentUserService currentUserService;
     private final ShipmentAccessService shipmentAccessService;
+    private final NotificationService notificationService;
 
     @Override
     public ShipmentResponse createShipment(ShipmentRequest request) {
@@ -50,6 +52,7 @@ public class ShipmentServiceImpl implements ShipmentService {
         copyRequestToEntity(request, shipment, true);
 
         Shipment savedShipment = shipmentRepository.save(shipment);
+        notificationService.send("SHIPMENT_UPDATE", creator, savedShipment);
 
         return mapToResponse(savedShipment);
     }

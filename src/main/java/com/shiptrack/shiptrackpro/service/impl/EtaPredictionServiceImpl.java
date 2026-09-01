@@ -107,6 +107,9 @@ public class EtaPredictionServiceImpl implements EtaPredictionService {
         prediction.setCalculatedAt(LocalDateTime.now());
 
         EtaPrediction savedPrediction = etaPredictionRepository.save(prediction);
+        if (shipment.getCreatedBy() != null) {
+            notificationService.send("ETA_UPDATE", shipment.getCreatedBy(), shipment);
+        }
         if (notifyOnRisk && shipment.getCreatedBy() != null
                 && calculation.delayRiskScore().compareTo(delayRiskThreshold) >= 0) {
             notificationService.send("DELAY_WARNING", shipment.getCreatedBy(), shipment);

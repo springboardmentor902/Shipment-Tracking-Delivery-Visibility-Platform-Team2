@@ -12,6 +12,7 @@ import com.shiptrack.shiptrackpro.repository.ShipmentRepository;
 import com.shiptrack.shiptrackpro.service.FileStorageService;
 import com.shiptrack.shiptrackpro.service.ProofOfDeliveryService;
 import com.shiptrack.shiptrackpro.service.ShipmentAccessService;
+import com.shiptrack.shiptrackpro.service.NotificationService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.core.io.Resource;
 import org.springframework.http.HttpStatus;
@@ -30,6 +31,7 @@ public class ProofOfDeliveryServiceImpl implements ProofOfDeliveryService {
     private final ShipmentRepository shipmentRepository;
     private final ShipmentAccessService shipmentAccessService;
     private final FileStorageService fileStorageService;
+    private final NotificationService notificationService;
 
     @Override
     @Transactional
@@ -60,7 +62,11 @@ public class ProofOfDeliveryServiceImpl implements ProofOfDeliveryService {
         shipment.setStatus("DELIVERED");
         shipment.setActualDeliveryDate(proof.getDeliveredAt());
         shipmentRepository.save(shipment);
-        return toResponse(proofOfDeliveryRepository.save(proof));
+        ProofOfDelivery savedProof = proofOfDeliveryRepository.save(proof);
+        if (shipment.getCreatedBy() != null) {
+            notificationService.send("DELIVERY_ALERT", shipment.getCreatedBy(), shipment);
+        }
+        return toResponse(savedProof);
     }
 
     @Override

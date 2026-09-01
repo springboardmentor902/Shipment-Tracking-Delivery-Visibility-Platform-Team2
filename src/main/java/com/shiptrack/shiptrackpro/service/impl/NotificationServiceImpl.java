@@ -129,10 +129,13 @@ public class NotificationServiceImpl implements NotificationService {
             return Optional.empty();
         }
 
+        String title = defaultIfBlank(requestedTitle, titleFor(type));
+        String message = defaultIfBlank(requestedMessage, messageFor(type, shipment));
+
         long safeWindow = Math.max(0, duplicatePreventionMinutes);
         LocalDateTime duplicateCutoff = LocalDateTime.now().minusMinutes(safeWindow);
-        if (notificationRepository.existsByShipment_IdAndTypeAndCreatedAtAfter(
-                shipment.getId(), type, duplicateCutoff)) {
+        if (notificationRepository.existsByShipment_IdAndTypeAndMessageAndCreatedAtAfter(
+                shipment.getId(), type, message, duplicateCutoff)) {
             LOGGER.info("Suppressed duplicate {} notification for shipment {}", type, shipment.getId());
             return Optional.empty();
         }
@@ -141,8 +144,8 @@ public class NotificationServiceImpl implements NotificationService {
                 .user(user)
                 .shipment(shipment)
                 .type(type)
-                .title(defaultIfBlank(requestedTitle, titleFor(type)))
-                .message(defaultIfBlank(requestedMessage, messageFor(type, shipment)))
+                .title(title)
+                .message(message)
                 .status(NotificationStatus.PENDING)
                 .build();
         notification = notificationRepository.save(notification);
@@ -190,9 +193,10 @@ public class NotificationServiceImpl implements NotificationService {
                 ? "your shipment"
                 : "shipment " + shipment.getTrackingNumber();
         return switch (type) {
-            case SHIPMENT_UPDATE -> "There is a new update for " + trackingNumber + ".";
+            case SHIPMENT_UPDATE -> trackingNumber + " is now "
+                    + shipment.getStatus().replace('_', ' ').toLowerCase(Locale.ROOT) + ".";
             case DELAY_WARNING -> trackingNumber + " may be delayed. Please check the latest tracking details.";
-            case DELIVERY_ALERT -> trackingNumber + " has a delivery-related update.";
+            case DELIVERY_ALERT -> trackingNumber + " has been delivered. Proof of delivery is available.";
             case ETA_UPDATE -> "The estimated delivery time for " + trackingNumber + " has been updated.";
             case MANUAL -> "There is a new notification for " + trackingNumber + ".";
         };
