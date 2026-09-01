@@ -9,6 +9,7 @@ type Shipment = { id: number; trackingNumber: string; status: string; pickupAddr
 type Eta = { predictedDeliveryTime: string; delayRiskScore: number; confidenceScore: number; factors: string };
 type TrackingEvent = { id: number; status: string; location?: string; eventTimestamp: string };
 type Notification = { id: number; title: string; message: string; readAt?: string };
+type LoginResult = { token: string; user: { fullName: string; role: string } };
 type Pod = {
   shipmentId: number;
   deliveredToName: string;
@@ -35,6 +36,11 @@ function riskStyle(score?: number) {
 
 export default function Home() {
   const [token, setToken] = useState("");
+  const [loginEmail, setLoginEmail] = useState("");
+  const [loginPassword, setLoginPassword] = useState("");
+  const [registerName, setRegisterName] = useState("");
+  const [registerEmail, setRegisterEmail] = useState("");
+  const [registerPassword, setRegisterPassword] = useState("");
   const [shipmentId, setShipmentId] = useState("");
   const [shipment, setShipment] = useState<Shipment>();
   const [eta, setEta] = useState<Eta>();
@@ -44,12 +50,46 @@ export default function Home() {
   const [selectedProof, setSelectedProof] = useState<Pod>();
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [showNotifications, setShowNotifications] = useState(false);
-  const [message, setMessage] = useState("Paste a login token, then load a shipment.");
+  const [message, setMessage] = useState("Register as a customer, then log in to create a shipment.");
   const [packages, setPackages] = useState<PackageItem[]>([{ description: "", quantity: 1, fragile: false }]);
   const [podFile, setPodFile] = useState<File>();
   const [recipient, setRecipient] = useState("");
   const [deliveryNotes, setDeliveryNotes] = useState("");
   const unreadCount = useMemo(() => notifications.filter((item) => !item.readAt).length, [notifications]);
+
+  async function login(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    try {
+      const result = await request<LoginResult>("/api/auth/login", "", {
+        method: "POST",
+        body: JSON.stringify({ email: loginEmail, password: loginPassword }),
+      });
+      setToken(result.token);
+      setMessage(`Logged in as ${result.user.fullName} (${result.user.role}).`);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Login failed.");
+    }
+  }
+
+  async function registerCustomer(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    try {
+      await request("/api/auth/register", "", {
+        method: "POST",
+        body: JSON.stringify({
+          fullName: registerName,
+          email: registerEmail,
+          password: registerPassword,
+          role: "CUSTOMER",
+        }),
+      });
+      setLoginEmail(registerEmail);
+      setLoginPassword(registerPassword);
+      setMessage("Customer account created. Click Login now.");
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Registration failed.");
+    }
+  }
 
   async function loadNotifications() {
     try { setNotifications(await request<Notification[]>("/api/notifications", token)); }
@@ -146,7 +186,9 @@ export default function Home() {
         {showNotifications && <div className="card notifications"><h2>Latest notifications</h2>{!notifications.length && <p>No notifications yet.</p>}{notifications.map((item) => <button key={item.id} className={item.readAt ? "notification read" : "notification"} onClick={() => markRead(item)}><strong>{item.title}</strong><span>{item.message}</span></button>)}</div>}</div>
     </header>
 
-    <section className="card form"><label htmlFor="token">Login token</label><input id="token" value={token} onChange={(event) => setToken(event.target.value)} placeholder="Paste the token returned by login" /><small>This token is stored only in this page.</small></section>
+    <section className="grid"><form className="card form" onSubmit={registerCustomer}><h2>Create customer account</h2><input required value={registerName} onChange={(event) => setRegisterName(event.target.value)} placeholder="Full name" /><input required type="email" value={registerEmail} onChange={(event) => setRegisterEmail(event.target.value)} placeholder="Email" /><input required minLength={8} type="password" value={registerPassword} onChange={(event) => setRegisterPassword(event.target.value)} placeholder="Password (minimum 8 characters)" /><button type="submit">Register as customer</button></form>
+      <form className="card form" onSubmit={login}><h2>Login</h2><input required type="email" value={loginEmail} onChange={(event) => setLoginEmail(event.target.value)} placeholder="Email" /><input required type="password" value={loginPassword} onChange={(event) => setLoginPassword(event.target.value)} placeholder="Password" /><button type="submit">Login</button><small>Customers can create shipments. Admin is used for verification and management.</small></form></section>
+    <section className="card form"><label htmlFor="token">Login token</label><input id="token" value={token} onChange={(event) => setToken(event.target.value)} placeholder="Token is filled automatically after login" /><small>You normally do not need to paste a token manually.</small></section>
     <p className="message" role="status">{message}</p>
 
     <section className="grid"><form className="card form" onSubmit={createShipment}><h2>Create shipment</h2><input name="senderName" required placeholder="Sender name" /><input name="receiverName" required placeholder="Receiver name" /><input name="pickupAddress" required placeholder="Pickup address" /><input name="deliveryAddress" required placeholder="Delivery address" /><select name="priority" defaultValue="STANDARD"><option value="STANDARD">Standard</option><option value="EXPRESS">Express</option></select><h3>Packages</h3>

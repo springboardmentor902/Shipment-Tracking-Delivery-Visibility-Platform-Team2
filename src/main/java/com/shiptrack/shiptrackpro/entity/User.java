@@ -41,14 +41,23 @@ public class User {
 
     private LocalDateTime createdAt;
 
+    private LocalDateTime updatedAt;
+
     private LocalDateTime lastLoginAt;
 
     @PrePersist
     protected void onCreate() {
-        createdAt = LocalDateTime.now();
+        LocalDateTime now = LocalDateTime.now();
+        createdAt = now;
+        updatedAt = now;
 
         if (status == null) {
             status = "ACTIVE";
         }
+    }
+
+    @PreUpdate
+    protected void onUpdate() {
+        updatedAt = LocalDateTime.now();
     }
 }
