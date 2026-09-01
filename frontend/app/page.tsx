@@ -10,6 +10,7 @@ type Eta = { predictedDeliveryTime: string; delayRiskScore: number; confidenceSc
 type TrackingEvent = { id: number; status: string; location?: string; eventTimestamp: string };
 type Notification = { id: number; title: string; message: string; readAt?: string };
 type LoginResult = { token: string; user: { fullName: string; role: string } };
+type Route = { distanceKm?: number; estimatedTimeMinutes?: number; trafficCondition?: string };
 type Pod = {
   shipmentId: number;
   deliveredToName: string;
@@ -55,6 +56,10 @@ export default function Home() {
   const [podFile, setPodFile] = useState<File>();
   const [recipient, setRecipient] = useState("");
   const [deliveryNotes, setDeliveryNotes] = useState("");
+  const [route, setRoute] = useState<Route>();
+  const [trafficCondition, setTrafficCondition] = useState("NORMAL");
+  const [trackingStatus, setTrackingStatus] = useState("IN_TRANSIT");
+  const [trackingLocation, setTrackingLocation] = useState("");
   const unreadCount = useMemo(() => notifications.filter((item) => !item.readAt).length, [notifications]);
 
   async function login(event: FormEvent<HTMLFormElement>) {
@@ -180,6 +185,35 @@ export default function Home() {
     }
   }
 
+  async function createRoute(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!shipmentId) return setMessage("Load or enter a shipment ID first.");
+    try {
+      const created = await request<Route>("/api/routes", token, {
+        method: "POST",
+        body: JSON.stringify({ shipmentId: Number(shipmentId), trafficCondition }),
+      });
+      setRoute(created);
+      setMessage("Route created. Distance and time are filled when Google Maps is available.");
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Could not create the route.");
+    }
+  }
+
+  async function addTrackingEvent(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!shipmentId) return setMessage("Load or enter a shipment ID first.");
+    try {
+      await request(`/api/tracking/${shipmentId}`, token, {
+        method: "POST",
+        body: JSON.stringify({ status: trackingStatus, location: trackingLocation }),
+      });
+      setMessage("Tracking update added. Load the shipment again to see the ETA.");
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Could not add the tracking update.");
+    }
+  }
+
   return <main className="page">
     <header className="header"><div><p className="eyebrow">INFOSYS SPRINGBOARD PROJECT</p><h1>ShipTrack Pro</h1><p className="subtitle">Track shipments, see delivery risk and upload delivery proof.</p></div>
       <div className="notification-area"><button className="bell" onClick={() => { setShowNotifications(!showNotifications); loadNotifications(); }}>🔔 Notifications {unreadCount > 0 && <span className="badge">{unreadCount}</span>}</button>
@@ -200,6 +234,9 @@ export default function Home() {
 
     <section className="grid"><section className="card"><h2>Live delivery updates</h2>{!events.length && <p>No tracking events loaded yet.</p>}<ol className="timeline">{events.map((event) => <li key={event.id}><strong>{event.status}</strong><span>{event.location || "Location not provided"}</span><small>{new Date(event.eventTimestamp).toLocaleString()}</small></li>)}</ol></section>
       <section className="card pod"><h2>Proof of delivery</h2>{pod ? <><p>Received by: <strong>{pod.deliveredToName}</strong></p><p>Verification: <span className="chip">{pod.verificationStatus}</span></p>{pod.deliveryNotes && <p>Notes: {pod.deliveryNotes}</p>}<div className="proof-images">{pod.signatureUrl && <img src={`${API_URL}${pod.signatureUrl}`} alt="Delivery signature" />}{pod.photoUrl && <img src={`${API_URL}${pod.photoUrl}`} alt="Delivery proof" />}</div></> : <form className="form" onSubmit={submitPod}><p>For logistics operators: select a shipment above, then upload proof.</p><input required value={recipient} onChange={(event) => setRecipient(event.target.value)} placeholder="Recipient name" /><input required type="file" accept="image/*" onChange={(event) => setPodFile(event.target.files?.[0])} /><textarea value={deliveryNotes} onChange={(event) => setDeliveryNotes(event.target.value)} placeholder="Delivery notes (optional)" /><button type="submit">Complete delivery</button></form>}</section></section>
+
+    <section className="grid"><form className="card form" onSubmit={createRoute}><h2>Admin/Operator: create route</h2><p>Create a route after loading a shipment. Google Maps then calculates distance and time.</p><select value={trafficCondition} onChange={(event) => setTrafficCondition(event.target.value)}><option value="NORMAL">Normal traffic</option><option value="HEAVY">Heavy traffic</option><option value="LIGHT">Light traffic</option></select><button type="submit">Create route</button>{route && <p>Distance: <strong>{route.distanceKm ?? "Not available"}</strong> km<br />Estimated time: <strong>{route.estimatedTimeMinutes ?? "Not available"}</strong> minutes</p>}</form>
+      <form className="card form" onSubmit={addTrackingEvent}><h2>Admin/Operator: add tracking update</h2><select value={trackingStatus} onChange={(event) => setTrackingStatus(event.target.value)}><option value="PICKED_UP">Picked up</option><option value="IN_TRANSIT">In transit</option><option value="OUT_FOR_DELIVERY">Out for delivery</option></select><input value={trackingLocation} onChange={(event) => setTrackingLocation(event.target.value)} placeholder="Current location, for example: Meerut" /><button type="submit">Add tracking update</button><small>After adding it, click Load above to refresh the ETA.</small></form></section>
 
     <section className="grid"><section className="card"><h2>Support/Admin verification queue</h2><p>Use a Support Agent or Admin login token, then load the proofs waiting for review.</p><button onClick={loadPendingProofs}>Load pending proofs</button>{!pendingProofs.length && <p>No pending proofs are loaded.</p>}<div className="queue">{pendingProofs.map((proof) => <button className="queue-item" key={proof.shipmentId} onClick={() => openProof(proof)}><strong>Shipment #{proof.shipmentId}</strong><span>Received by {proof.deliveredToName}</span><small>{proof.deliveredAt ? new Date(proof.deliveredAt).toLocaleString() : "Date not available"}</small></button>)}</div></section>
       <section className="card"><h2>Proof review details</h2>{selectedProof ? <><p>Shipment: <strong>#{selectedProof.shipmentId}</strong></p><p>Received by: <strong>{selectedProof.deliveredToName}</strong></p>{selectedProof.deliveryNotes && <p>Notes: {selectedProof.deliveryNotes}</p>}<div className="proof-images">{selectedProof.signatureUrl && <img src={`${API_URL}${selectedProof.signatureUrl}`} alt="Full delivery signature" />}{selectedProof.photoUrl && <img src={`${API_URL}${selectedProof.photoUrl}`} alt="Full delivery photo" />}</div><div className="actions"><button onClick={() => verifyProof("VERIFIED")}>Approve proof</button><button className="danger" onClick={() => verifyProof("REJECTED")}>Reject proof</button></div></> : <p>Select a proof from the queue to see its signature and photo.</p>}</section></section>
