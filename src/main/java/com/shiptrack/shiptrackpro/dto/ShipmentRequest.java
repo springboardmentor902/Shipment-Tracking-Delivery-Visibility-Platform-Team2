@@ -1,8 +1,11 @@
 package com.shiptrack.shiptrackpro.dto;
 
 import jakarta.validation.constraints.NotBlank;
-import jakarta.validation.constraints.NotNull;
+import jakarta.validation.Valid;
 import lombok.Data;
+
+import java.util.ArrayList;
+import java.util.List;
 
 @Data
 public class ShipmentRequest {
@@ -28,6 +31,15 @@ public class ShipmentRequest {
 
     private String priority;
 
+    /** New package section; every row is persisted in the packages table. */
+    @Valid
+    private List<PackageRequest> packages = new ArrayList<>();
+
+    /*
+     * Compatibility fields for the original single-package form. They are
+     * converted to one Package record only when the new packages array is
+     * absent. New clients should always use packages.
+     */
     private String packageDescription;
     private Double weight;
     private Double length;

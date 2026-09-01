@@ -17,5 +17,7 @@ public interface ShipmentService {
 
     ShipmentResponse updateShipment(Long id, ShipmentRequest request);
 
+    ShipmentResponse assignOperator(Long id, Long operatorId);
+
     void deleteShipment(Long id);
 }

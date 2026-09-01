@@ -31,3 +31,12 @@ build/
 
 ### VS Code ###
 .vscode/
+
+# Local secrets and uploaded proof files
+.env
+.env.*
+uploads/
+
+# Next.js generated files
+frontend/node_modules/
+frontend/.next/
