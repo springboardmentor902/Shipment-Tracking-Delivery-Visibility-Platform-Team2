@@ -9,7 +9,15 @@ type Shipment = { id: number; trackingNumber: string; status: string; pickupAddr
 type Eta = { predictedDeliveryTime: string; delayRiskScore: number; confidenceScore: number; factors: string };
 type TrackingEvent = { id: number; status: string; location?: string; eventTimestamp: string };
 type Notification = { id: number; title: string; message: string; readAt?: string };
-type Pod = { deliveredToName: string; deliveryNotes?: string; photoUrl?: string; verificationStatus: string };
+type Pod = {
+  shipmentId: number;
+  deliveredToName: string;
+  deliveryNotes?: string;
+  signatureUrl?: string;
+  photoUrl?: string;
+  verificationStatus: string;
+  deliveredAt?: string;
+};
 
 async function request<T>(path: string, token: string, options: RequestInit = {}) {
   const headers = new Headers(options.headers);
@@ -32,6 +40,8 @@ export default function Home() {
   const [eta, setEta] = useState<Eta>();
   const [events, setEvents] = useState<TrackingEvent[]>([]);
   const [pod, setPod] = useState<Pod>();
+  const [pendingProofs, setPendingProofs] = useState<Pod[]>([]);
+  const [selectedProof, setSelectedProof] = useState<Pod>();
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [showNotifications, setShowNotifications] = useState(false);
   const [message, setMessage] = useState("Paste a login token, then load a shipment.");
@@ -97,6 +107,39 @@ export default function Home() {
     setNotifications((current) => current.map((notification) => notification.id === item.id ? { ...notification, readAt: new Date().toISOString() } : notification));
   }
 
+  async function loadPendingProofs() {
+    try {
+      const proofs = await request<Pod[]>("/api/pod/pending", token);
+      setPendingProofs(proofs);
+      setMessage(`${proofs.length} proof(s) are waiting for verification.`);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Could not load the verification queue.");
+    }
+  }
+
+  async function openProof(proof: Pod) {
+    try {
+      setSelectedProof(await request<Pod>(`/api/pod/${proof.shipmentId}`, token));
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Could not load proof details.");
+    }
+  }
+
+  async function verifyProof(verificationStatus: "VERIFIED" | "REJECTED") {
+    if (!selectedProof) return;
+    try {
+      const updated = await request<Pod>(`/api/pod/${selectedProof.shipmentId}/verify`, token, {
+        method: "PATCH",
+        body: JSON.stringify({ verificationStatus }),
+      });
+      setSelectedProof(updated);
+      setPendingProofs((current) => current.filter((proof) => proof.shipmentId !== updated.shipmentId));
+      setMessage(`Proof for shipment ${updated.shipmentId} was ${verificationStatus.toLowerCase()}.`);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Could not verify this proof.");
+    }
+  }
+
   return <main className="page">
     <header className="header"><div><p className="eyebrow">INFOSYS SPRINGBOARD PROJECT</p><h1>ShipTrack Pro</h1><p className="subtitle">Track shipments, see delivery risk and upload delivery proof.</p></div>
       <div className="notification-area"><button className="bell" onClick={() => { setShowNotifications(!showNotifications); loadNotifications(); }}>🔔 Notifications {unreadCount > 0 && <span className="badge">{unreadCount}</span>}</button>
@@ -114,6 +157,9 @@ export default function Home() {
     </section>
 
     <section className="grid"><section className="card"><h2>Live delivery updates</h2>{!events.length && <p>No tracking events loaded yet.</p>}<ol className="timeline">{events.map((event) => <li key={event.id}><strong>{event.status}</strong><span>{event.location || "Location not provided"}</span><small>{new Date(event.eventTimestamp).toLocaleString()}</small></li>)}</ol></section>
-      <section className="card pod"><h2>Proof of delivery</h2>{pod ? <><p>Received by: <strong>{pod.deliveredToName}</strong></p><p>Verification: <span className="chip">{pod.verificationStatus}</span></p>{pod.deliveryNotes && <p>Notes: {pod.deliveryNotes}</p>}{pod.photoUrl && <a href={`${API_URL}${pod.photoUrl}`} target="_blank">View delivery photo</a>}</> : <form className="form" onSubmit={submitPod}><p>For logistics operators: select a shipment above, then upload proof.</p><input required value={recipient} onChange={(event) => setRecipient(event.target.value)} placeholder="Recipient name" /><input required type="file" accept="image/*" onChange={(event) => setPodFile(event.target.files?.[0])} /><textarea value={deliveryNotes} onChange={(event) => setDeliveryNotes(event.target.value)} placeholder="Delivery notes (optional)" /><button type="submit">Complete delivery</button></form>}</section></section>
+      <section className="card pod"><h2>Proof of delivery</h2>{pod ? <><p>Received by: <strong>{pod.deliveredToName}</strong></p><p>Verification: <span className="chip">{pod.verificationStatus}</span></p>{pod.deliveryNotes && <p>Notes: {pod.deliveryNotes}</p>}<div className="proof-images">{pod.signatureUrl && <img src={`${API_URL}${pod.signatureUrl}`} alt="Delivery signature" />}{pod.photoUrl && <img src={`${API_URL}${pod.photoUrl}`} alt="Delivery proof" />}</div></> : <form className="form" onSubmit={submitPod}><p>For logistics operators: select a shipment above, then upload proof.</p><input required value={recipient} onChange={(event) => setRecipient(event.target.value)} placeholder="Recipient name" /><input required type="file" accept="image/*" onChange={(event) => setPodFile(event.target.files?.[0])} /><textarea value={deliveryNotes} onChange={(event) => setDeliveryNotes(event.target.value)} placeholder="Delivery notes (optional)" /><button type="submit">Complete delivery</button></form>}</section></section>
+
+    <section className="grid"><section className="card"><h2>Support/Admin verification queue</h2><p>Use a Support Agent or Admin login token, then load the proofs waiting for review.</p><button onClick={loadPendingProofs}>Load pending proofs</button>{!pendingProofs.length && <p>No pending proofs are loaded.</p>}<div className="queue">{pendingProofs.map((proof) => <button className="queue-item" key={proof.shipmentId} onClick={() => openProof(proof)}><strong>Shipment #{proof.shipmentId}</strong><span>Received by {proof.deliveredToName}</span><small>{proof.deliveredAt ? new Date(proof.deliveredAt).toLocaleString() : "Date not available"}</small></button>)}</div></section>
+      <section className="card"><h2>Proof review details</h2>{selectedProof ? <><p>Shipment: <strong>#{selectedProof.shipmentId}</strong></p><p>Received by: <strong>{selectedProof.deliveredToName}</strong></p>{selectedProof.deliveryNotes && <p>Notes: {selectedProof.deliveryNotes}</p>}<div className="proof-images">{selectedProof.signatureUrl && <img src={`${API_URL}${selectedProof.signatureUrl}`} alt="Full delivery signature" />}{selectedProof.photoUrl && <img src={`${API_URL}${selectedProof.photoUrl}`} alt="Full delivery photo" />}</div><div className="actions"><button onClick={() => verifyProof("VERIFIED")}>Approve proof</button><button className="danger" onClick={() => verifyProof("REJECTED")}>Reject proof</button></div></> : <p>Select a proof from the queue to see its signature and photo.</p>}</section></section>
   </main>;
 }

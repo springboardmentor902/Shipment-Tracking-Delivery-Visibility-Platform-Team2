@@ -63,6 +63,7 @@ The API runs on `http://localhost:8081`.
 | List/read notifications | `GET /api/notifications`, `PATCH /api/notifications/{id}/read` |
 | Submit/get POD | `POST`, `GET /api/pod/{shipmentId}` |
 | Verify POD | `PATCH /api/pod/{shipmentId}/verify` |
+| View pending proof queue | `GET /api/pod/pending` (Support Agent/Admin) |
 
 All protected requests need this header after login:
 

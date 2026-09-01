@@ -8,6 +8,7 @@ import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.core.io.Resource;
 import org.springframework.http.MediaType;
+import org.springframework.http.MediaTypeFactory;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.ModelAttribute;
@@ -17,6 +18,8 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
+
+import java.util.List;
 
 @RestController
 @RequestMapping("/api/pod")
@@ -42,6 +45,11 @@ public class ProofOfDeliveryController {
         return ResponseEntity.ok(proofOfDeliveryService.verify(shipmentId, request));
     }
 
+    @GetMapping("/pending")
+    public ResponseEntity<List<ProofOfDeliveryResponse>> getPendingProofs() {
+        return ResponseEntity.ok(proofOfDeliveryService.getPendingProofs());
+    }
+
     @GetMapping("/{shipmentId}")
     public ResponseEntity<ProofOfDeliveryResponse> getForShipment(@PathVariable Long shipmentId) {
         return ResponseEntity.ok(proofOfDeliveryService.getForShipment(shipmentId));
@@ -49,8 +57,10 @@ public class ProofOfDeliveryController {
 
     @GetMapping("/files/{fileName:.+}")
     public ResponseEntity<Resource> getFile(@PathVariable String fileName) {
+        Resource file = proofOfDeliveryService.loadAuthorizedFile(fileName);
         return ResponseEntity.ok()
-                .contentType(MediaType.APPLICATION_OCTET_STREAM)
-                .body(proofOfDeliveryService.loadAuthorizedFile(fileName));
+                .contentType(MediaTypeFactory.getMediaType(file)
+                        .orElse(MediaType.APPLICATION_OCTET_STREAM))
+                .body(file);
     }
 }

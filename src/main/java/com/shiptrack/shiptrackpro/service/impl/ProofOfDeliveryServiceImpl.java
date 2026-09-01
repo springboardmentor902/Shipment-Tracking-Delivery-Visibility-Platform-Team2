@@ -20,6 +20,7 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.time.LocalDateTime;
+import java.util.List;
 
 @Service
 @RequiredArgsConstructor
@@ -84,6 +85,17 @@ public class ProofOfDeliveryServiceImpl implements ProofOfDeliveryService {
         ProofOfDelivery proof = findProof(shipmentId);
         shipmentAccessService.requireCanViewShipment(proof.getShipment());
         return toResponse(proof);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<ProofOfDeliveryResponse> getPendingProofs() {
+        shipmentAccessService.requireSupportAgentOrAdministrator();
+        return proofOfDeliveryRepository
+                .findByVerificationStatusOrderByDeliveredAtAsc(ProofOfDeliveryVerificationStatus.PENDING)
+                .stream()
+                .map(this::toResponse)
+                .toList();
     }
 
     @Override
