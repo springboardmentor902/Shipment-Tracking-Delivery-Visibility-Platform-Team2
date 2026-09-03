@@ -4,6 +4,7 @@ import lombok.Builder;
 import lombok.Data;
 
 import java.time.LocalDateTime;
+import java.util.List;
 
 @Data
 @Builder
@@ -11,6 +12,8 @@ public class ShipmentResponse {
 
     private Long id;
     private String trackingNumber;
+    private Long createdById;
+    private Long assignedOperatorId;
 
     private String senderName;
     private String senderPhone;
@@ -46,5 +49,8 @@ public class ShipmentResponse {
     private Double declaredValue;
     private Boolean fragile;
 
+    private List<PackageResponse> packages;
+
     private LocalDateTime createdAt;
+    private LocalDateTime updatedAt;
 }

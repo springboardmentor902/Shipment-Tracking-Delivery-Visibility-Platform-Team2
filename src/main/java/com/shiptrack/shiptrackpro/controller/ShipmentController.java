@@ -2,6 +2,7 @@ package com.shiptrack.shiptrackpro.controller;
 
 import com.shiptrack.shiptrackpro.dto.ShipmentRequest;
 import com.shiptrack.shiptrackpro.dto.ShipmentResponse;
+import com.shiptrack.shiptrackpro.dto.OperatorAssignmentRequest;
 import com.shiptrack.shiptrackpro.service.ShipmentService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -63,6 +64,14 @@ public class ShipmentController {
         return ResponseEntity.ok(
                 shipmentService.updateShipment(id, request)
         );
+    }
+
+    /** Assigns an operator; operators may claim a shipment only for themselves. */
+    @PatchMapping("/{id}/operator")
+    public ResponseEntity<ShipmentResponse> assignOperator(
+            @PathVariable Long id,
+            @Valid @RequestBody OperatorAssignmentRequest request) {
+        return ResponseEntity.ok(shipmentService.assignOperator(id, request.getOperatorId()));
     }
 
     @DeleteMapping("/{id}")

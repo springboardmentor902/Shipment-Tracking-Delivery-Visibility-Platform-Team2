@@ -4,6 +4,8 @@ import jakarta.persistence.*;
 import lombok.*;
 
 import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.List;
 
 @Entity
 @Table(name = "shipments")
@@ -20,6 +22,16 @@ public class Shipment {
 
     @Column(nullable = false, unique = true)
     private String trackingNumber;
+
+    /** The customer or business client that created the shipment. */
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "created_by")
+    private User createdBy;
+
+    /** The logistics operator currently responsible for the shipment. */
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "assigned_operator_id")
+    private User assignedOperator;
 
     private String senderName;
     private String senderPhone;
@@ -48,20 +60,18 @@ public class Shipment {
 
     private String cancellationReason;
 
-    private String packageDescription;
-    private Double weight;
-    private Double length;
-    private Double width;
-    private Double height;
-    private Integer quantity;
-    private Double declaredValue;
-    private Boolean fragile;
+    @Builder.Default
+    @OneToMany(mappedBy = "shipment", cascade = CascadeType.ALL, orphanRemoval = true)
+    private List<ShipmentPackage> packages = new ArrayList<>();
 
     private LocalDateTime createdAt;
+    private LocalDateTime updatedAt;
 
     @PrePersist
     protected void onCreate() {
-        createdAt = LocalDateTime.now();
+        LocalDateTime now = LocalDateTime.now();
+        createdAt = now;
+        updatedAt = now;
 
         if (status == null) {
             status = "CREATED";
@@ -71,12 +81,27 @@ public class Shipment {
             priority = "STANDARD";
         }
 
-        if (quantity == null) {
-            quantity = 1;
+        if (estimatedDeliveryDate == null) {
+            estimatedDeliveryDate = now.plusDays(
+                    "EXPRESS".equalsIgnoreCase(priority) ? 2 : 4
+            );
         }
 
-        if (fragile == null) {
-            fragile = false;
+    }
+
+    @PreUpdate
+    protected void onUpdate() {
+        updatedAt = LocalDateTime.now();
+    }
+
+    public void replacePackages(List<ShipmentPackage> newPackages) {
+        packages.clear();
+        if (newPackages == null) {
+            return;
         }
+        newPackages.forEach(shipmentPackage -> {
+            shipmentPackage.setShipment(this);
+            packages.add(shipmentPackage);
+        });
     }
 }

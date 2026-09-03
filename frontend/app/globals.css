@@ -1,26 +1,12 @@
-@import "tailwindcss";
-
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
-}
-
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
-}
-
-body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
-}
+:root { --navy: #102a43; --blue: #2563eb; --light: #f4f7fb; --line: #d9e2ec; --text: #243b53; }
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--light); color: var(--text); font-family: Arial, Helvetica, sans-serif; }
+button, input, select, textarea { font: inherit; }
+button { cursor: pointer; border: 0; border-radius: 8px; background: var(--blue); color: white; padding: 10px 14px; font-weight: 700; }
+button:hover { background: #1d4ed8; }
+input, select, textarea { width: 100%; border: 1px solid var(--line); border-radius: 7px; padding: 10px; background: white; }
+textarea { min-height: 82px; resize: vertical; }
+.page { max-width: 1160px; margin: auto; padding: 28px 20px 52px; }.header { display:flex; justify-content:space-between; gap:20px; align-items:flex-start; margin-bottom:20px; }.eyebrow { color:var(--blue); font-size:.75rem; font-weight:700; letter-spacing:.08em; }.subtitle, small { color:#627d98; }.card { background:#fff; border:1px solid var(--line); border-radius:12px; padding:18px; box-shadow:0 4px 10px rgba(16,42,67,.04); }.grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:18px; margin-top:18px; }.form { display:grid; gap:10px; }.search { display:flex; gap:8px; }.search button { white-space:nowrap; }.message { min-height:24px; color:#334e68; }.package { display:grid; grid-template-columns:minmax(120px,1fr) 70px 100px auto; align-items:center; gap:8px; }.package label input { width:auto; }.soft { background:#e6eef8; color:var(--text); }.shipment { margin:14px 0; padding:12px; background:#f8fafc; border-radius:8px; }.chip { display:inline-block; padding:3px 8px; border-radius:999px; color:#1e40af; background:#dbeafe; font-size:.8rem; font-weight:700; }.eta { border-left:5px solid #94a3b8; padding:15px; border-radius:8px; background:#f8fafc; }.low { border-color:#16a34a; background:#f0fdf4; }.medium { border-color:#f59e0b; background:#fffbeb; }.high { border-color:#dc2626; background:#fef2f2; }.timeline { padding-left:20px; }.timeline li { padding-bottom:14px; }.timeline span { display:block; }.bell { background:#fff; color:var(--navy); border:1px solid var(--line); }.badge { display:inline-grid; place-items:center; min-width:20px; height:20px; border-radius:50%; background:#dc2626; color:white; font-size:.75rem; }.notification-area { position:relative; }.notifications { position:absolute; right:0; top:45px; z-index:2; width:min(360px,85vw); }.notification { display:block; width:100%; margin-top:8px; text-align:left; background:#eff6ff; color:var(--text); }.notification.read { background:#f8fafc; font-weight:400; }.notification span { display:block; font-size:.86rem; }.pod a { color:var(--blue); font-weight:700; } h1 { color:var(--navy); margin:4px 0; } h2 { color:var(--navy); font-size:1.2rem; } p { margin-top:0; }
+.queue { display:grid; gap:8px; margin-top:14px; }.queue-item { text-align:left; background:#eff6ff; color:var(--text); }.queue-item strong, .queue-item span, .queue-item small { display:block; }.proof-images { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:10px; margin:12px 0; }.proof-images img { width:100%; max-height:260px; object-fit:contain; border:1px solid var(--line); border-radius:8px; background:#f8fafc; }.actions { display:flex; flex-wrap:wrap; gap:8px; }.danger { background:#dc2626; }.danger:hover { background:#b91c1c; }
+.map-card { margin-top:18px; }.map { height:360px; margin-bottom:10px; border:1px solid var(--line); border-radius:8px; overflow:hidden; background:#e6eef8; }
+@media (max-width:760px) { .header, .grid { display:grid; grid-template-columns:1fr; }.package { grid-template-columns:1fr 70px; }.proof-images { grid-template-columns:1fr; } }
