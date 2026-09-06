@@ -83,7 +83,7 @@ public class SecurityConfig {
 
                         // Analytics and reports
                         .requestMatchers("/api/analytics/**", "/api/reports/**")
-                        .hasAnyRole("BUSINESS_CLIENT", "ADMINISTRATOR")
+                        .hasAnyRole("CUSTOMER", "BUSINESS_CLIENT", "SUPPORT_AGENT", "ADMINISTRATOR")
 
                         // Admin
                         .requestMatchers("/api/admin/**")
