@@ -13,6 +13,7 @@ public class CustomerAnalyticsResponse {
     private long totalShipments;
     private long totalShipmentHistoryCount;
     private long activeShipments;
+    private long attentionRequired;
     private long pendingVerifications;
     private Map<String, Long> statusBreakdown;
     private Map<String, Long> monthlyShipmentVolume;

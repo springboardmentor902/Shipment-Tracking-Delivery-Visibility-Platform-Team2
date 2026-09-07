@@ -62,6 +62,12 @@ public class EtaPrediction {
     @Column(name = "calculated_at", nullable = false)
     private LocalDateTime calculatedAt;
 
+    @Column(name = "manually_adjusted", nullable = false)
+    private boolean manuallyAdjusted;
+
+    @Column(name = "override_reason", length = 500)
+    private String overrideReason;
+
     @PrePersist
     @PreUpdate
     protected void updateCalculatedAt() {

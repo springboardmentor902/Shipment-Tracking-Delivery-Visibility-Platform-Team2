@@ -20,6 +20,8 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.time.LocalDateTime;
@@ -37,7 +39,7 @@ public class NotificationServiceImpl implements NotificationService {
     private final ShipmentRepository shipmentRepository;
     private final CurrentUserService currentUserService;
     private final ShipmentAccessService shipmentAccessService;
-    private final NotificationEmailSender notificationEmailSender;
+    private final NotificationEmailDeliveryService notificationEmailDeliveryService;
 
     @Value("${app.notification.dedupe-minutes:30}")
     private long duplicatePreventionMinutes;
@@ -149,17 +151,24 @@ public class NotificationServiceImpl implements NotificationService {
                 .status(NotificationStatus.PENDING)
                 .build();
         notification = notificationRepository.save(notification);
+        Long notificationId = notification.getId();
 
-        try {
-            notificationEmailSender.send(notification);
-            notification.setStatus(NotificationStatus.SENT);
-            notification.setSentAt(LocalDateTime.now());
-        } catch (Exception exception) {
-            notification.setStatus(NotificationStatus.FAILED);
-            LOGGER.warn("Email delivery failed for notification {}", notification.getId(), exception);
+        // Save the shipment and its in-app notification first. Email is sent
+        // only after the transaction commits, on a background thread, so a
+        // slow mail server never delays shipment creation.
+        if (TransactionSynchronizationManager.isSynchronizationActive()) {
+            TransactionSynchronizationManager.registerSynchronization(
+                    new TransactionSynchronization() {
+                        @Override
+                        public void afterCommit() {
+                            notificationEmailDeliveryService.deliver(notificationId);
+                        }
+                    });
+        } else {
+            notificationEmailDeliveryService.deliver(notificationId);
         }
 
-        return Optional.of(mapToResponse(notificationRepository.save(notification)));
+        return Optional.of(mapToResponse(notification));
     }
 
     private NotificationType parseType(String type) {

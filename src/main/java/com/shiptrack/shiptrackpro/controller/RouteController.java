@@ -16,6 +16,8 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.util.List;
+
 @RestController
 @RequestMapping("/api/routes")
 @RequiredArgsConstructor
@@ -47,5 +49,12 @@ public class RouteController {
             @PathVariable Long shipmentId
     ) {
         return ResponseEntity.ok(routeService.getRouteForShipment(shipmentId));
+    }
+
+    @GetMapping("/{shipmentId}/history")
+    public ResponseEntity<List<RouteResponse>> getRouteHistoryForShipment(
+            @PathVariable Long shipmentId
+    ) {
+        return ResponseEntity.ok(routeService.getRouteHistoryForShipment(shipmentId));
     }
 }

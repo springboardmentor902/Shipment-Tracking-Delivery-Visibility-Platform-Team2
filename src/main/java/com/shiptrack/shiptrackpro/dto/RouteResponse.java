@@ -26,6 +26,9 @@ public class RouteResponse {
     private Integer estimatedTimeMinutes;
     private Integer actualTimeMinutes;
     private String trafficCondition;
+    private boolean isCurrent;
+    private String routeSummary;
+    private String selectionReason;
 
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;

@@ -18,6 +18,7 @@ import org.springframework.web.server.ResponseStatusException;
 import java.time.LocalDateTime;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Locale;
 
 @Service
 @RequiredArgsConstructor
@@ -29,8 +30,9 @@ public class UserServiceImpl implements UserService {
 
     @Override
     public UserResponse registerUser(RegisterRequest request) {
+        String email = request.getEmail().trim().toLowerCase(Locale.ROOT);
 
-        if (userRepository.existsByEmail(request.getEmail())) {
+        if (userRepository.existsByEmailIgnoreCase(email)) {
             throw new ResponseStatusException(
                     HttpStatus.CONFLICT,
                     "Email already registered"
@@ -60,7 +62,7 @@ public class UserServiceImpl implements UserService {
 
         User user = User.builder()
                 .fullName(request.getFullName())
-                .email(request.getEmail())
+                .email(email)
                 .password(passwordEncoder.encode(request.getPassword()))
                 .phone(request.getPhone())
                 .role(requestedRole.name())
@@ -74,16 +76,28 @@ public class UserServiceImpl implements UserService {
 
     @Override
     public LoginResponse loginUser(LoginRequest request) {
+        String email = request.getEmail().trim();
 
-        User user = userRepository.findByEmail(request.getEmail())
+        User user = userRepository.findByEmailIgnoreCase(email)
                 .orElseThrow(() -> new ResponseStatusException(
                         HttpStatus.UNAUTHORIZED,
                         "Invalid email or password"
                 ));
 
-        if (!passwordEncoder.matches(
+        boolean passwordMatches = passwordEncoder.matches(
                 request.getPassword(),
-                user.getPassword())) {
+                user.getPassword());
+
+        // Older local database records may predate BCrypt. If the submitted
+        // password matches one of those records, upgrade it immediately.
+        if (!passwordMatches
+                && !user.getPassword().startsWith("$2")
+                && request.getPassword().equals(user.getPassword())) {
+            user.setPassword(passwordEncoder.encode(request.getPassword()));
+            passwordMatches = true;
+        }
+
+        if (!passwordMatches) {
 
             throw new ResponseStatusException(
                     HttpStatus.UNAUTHORIZED,

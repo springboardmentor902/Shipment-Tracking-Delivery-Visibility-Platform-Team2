@@ -18,4 +18,7 @@ public class EtaPredictionResponse {
     private BigDecimal confidenceScore;
     private String factors;
     private LocalDateTime calculatedAt;
+    private Integer estimatedRemainingMinutes;
+    private boolean manuallyAdjusted;
+    private String overrideReason;
 }

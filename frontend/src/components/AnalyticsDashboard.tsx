@@ -31,6 +31,25 @@ type AnalyticsData = {
     message: string;
     createdAt: string;
   }>;
+  routeAnalytics?: {
+    totalRoutes: number;
+    averageRouteDistanceKm: number;
+    timeEstimateAccuracyPercent: number;
+    routesWithActualTime: number;
+    bestPerformingRoute?: RoutePerformance;
+    worstPerformingRoute?: RoutePerformance;
+  };
+};
+
+type RoutePerformance = {
+  id: number;
+  trackingNumber?: string;
+  origin: string;
+  destination: string;
+  distanceKm?: number;
+  estimatedTimeMinutes?: number;
+  actualTimeMinutes?: number;
+  isCurrent: boolean;
 };
 
 type Props = {
@@ -130,6 +149,19 @@ export default function AnalyticsDashboard({
           <Bar data={monthlyData} options={{ responsive: true, plugins: { legend: { display: false } } }} />
         </div>
       </div>
+      {role === "admin" && data?.routeAnalytics && <section className="rounded-xl border border-slate-200 bg-white p-5">
+        <div className="mb-4"><p className="text-xs font-bold tracking-widest text-blue-600">ROUTE MANAGEMENT</p><h2 className="text-lg font-semibold text-slate-900">Route analytics</h2></div>
+        <div className="grid gap-4 sm:grid-cols-3">
+          <MetricCard label="Saved routes" value={data.routeAnalytics.totalRoutes} />
+          <MetricCard label="Average route distance" value={data.routeAnalytics.averageRouteDistanceKm} suffix=" km" />
+          <MetricCard label="ETA accuracy" value={data.routeAnalytics.timeEstimateAccuracyPercent} suffix="%" />
+        </div>
+        <p className="mt-4 text-sm text-slate-500">ETA accuracy uses {data.routeAnalytics.routesWithActualTime} route(s) with an actual travel time recorded.</p>
+        <div className="mt-5 grid gap-4 lg:grid-cols-2">
+          <RoutePerformanceCard title="Best performing route" route={data.routeAnalytics.bestPerformingRoute} emptyText="Create routes to see the best-performing route." />
+          <RoutePerformanceCard title="Worst performing route" route={data.routeAnalytics.worstPerformingRoute} emptyText="Create routes to see the route needing the most attention." />
+        </div>
+      </section>}
       {data?.recentNotifications && data.recentNotifications.length > 0 && (
         <div className="rounded-xl border border-slate-200 bg-white p-5">
           <h2 className="mb-3 text-lg font-semibold text-slate-900">Recent notifications</h2>
@@ -147,11 +179,15 @@ export default function AnalyticsDashboard({
   );
 }
 
-function MetricCard({ label, value }: { label: string; value: number }) {
+function MetricCard({ label, value, suffix = "" }: { label: string; value: number; suffix?: string }) {
   return (
     <div className="rounded-xl border border-slate-200 bg-white p-5">
       <p className="text-sm text-slate-500">{label}</p>
-      <p className="mt-2 text-3xl font-bold text-slate-900">{value}</p>
+      <p className="mt-2 text-3xl font-bold text-slate-900">{value}{suffix}</p>
     </div>
   );
+}
+
+function RoutePerformanceCard({ title, route, emptyText }: { title: string; route?: RoutePerformance; emptyText: string }) {
+  return <div className="rounded-lg border border-slate-100 bg-slate-50 p-4"><p className="font-semibold text-slate-800">{title}</p>{route ? <><p className="mt-2 text-sm font-medium text-slate-700">{route.trackingNumber ?? `Route #${route.id}`}</p><p className="text-sm text-slate-600">{route.origin} → {route.destination}</p><p className="mt-2 text-xs text-slate-500">{route.distanceKm ?? "—"} km · Estimated: {route.estimatedTimeMinutes ?? "—"} min · Actual: {route.actualTimeMinutes ?? "Not recorded"}</p></> : <p className="mt-2 text-sm text-slate-500">{emptyText}</p>}</div>;
 }

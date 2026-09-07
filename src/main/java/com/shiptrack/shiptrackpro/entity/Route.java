@@ -8,9 +8,7 @@ import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
-import jakarta.persistence.OneToOne;
 import jakarta.persistence.Table;
-import jakarta.persistence.UniqueConstraint;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Getter;
@@ -21,13 +19,7 @@ import java.math.BigDecimal;
 import java.time.LocalDateTime;
 
 @Entity
-@Table(
-        name = "routes",
-        uniqueConstraints = @UniqueConstraint(
-                name = "uk_routes_shipment_id",
-                columnNames = "shipment_id"
-        )
-)
+@Table(name = "routes")
 @Getter
 @Setter
 @Builder
@@ -40,10 +32,10 @@ public class Route {
     private Long id;
 
     /**
-     * A shipment has one active route. Keeping this lazy prevents route data
-     * from being serialized with shipment responses accidentally.
+     * A shipment may have multiple historical routes. Exactly one is marked
+     * current by RouteService when a route is created or replaced.
      */
-    @OneToOne(fetch = FetchType.LAZY, optional = false)
+    @ManyToOne(fetch = FetchType.LAZY, optional = false)
     @JoinColumn(name = "shipment_id", nullable = false)
     private Shipment shipment;
 
@@ -69,6 +61,15 @@ public class Route {
 
     private String trafficCondition;
 
+    @Column(nullable = false)
+    private boolean isCurrent;
+
+    @Column(length = 1000)
+    private String routeSummary;
+
+    @Column(length = 1000)
+    private String selectionReason;
+
     @Column(nullable = false, updatable = false)
     private LocalDateTime createdAt;
 
@@ -83,6 +84,10 @@ public class Route {
 
         if (trafficCondition == null || trafficCondition.isBlank()) {
             trafficCondition = "NORMAL";
+        }
+
+        if (!isCurrent) {
+            isCurrent = true;
         }
     }
 
