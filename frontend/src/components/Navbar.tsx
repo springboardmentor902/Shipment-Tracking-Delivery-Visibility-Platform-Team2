@@ -32,7 +32,7 @@ export default function Navbar({
         </div>
       </div>
       <div className="topbar-actions">
-        <button className="auth-button" onClick={onOpenAuth}>{userName ? "Account" : "Login / Register"}</button>
+        <button suppressHydrationWarning className="auth-button" onClick={onOpenAuth}>{userName ? "Account" : "Login / Register"}</button>
         <div className="notification-area">
           <button className="icon-button" onClick={onToggleNotifications} aria-label="Open notifications">
             <span aria-hidden="true">♢</span>

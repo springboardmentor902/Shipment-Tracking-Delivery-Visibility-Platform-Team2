@@ -12,6 +12,7 @@ public class BusinessClientAnalyticsResponse {
     private long totalShipmentVolume;
     private long totalShipments;
     private long activeShipments;
+    private long attentionRequired;
     private long pendingVerifications;
     private Map<String, Long> statusBreakdown;
     private Map<String, Long> monthlyShipmentVolume;

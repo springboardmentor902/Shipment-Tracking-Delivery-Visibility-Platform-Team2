@@ -3,8 +3,13 @@ type TimelineEvent = { status: string; location?: string; eventTimestamp: string
 const steps = ["CREATED", "PICKED_UP", "IN_TRANSIT", "OUT_FOR_DELIVERY", "DELIVERED"];
 
 export default function ShipmentTimeline({ events, currentStatus }: { events: TimelineEvent[]; currentStatus?: string }) {
+  if (!currentStatus && events.length === 0) return null;
+
   const normalized = currentStatus?.toUpperCase();
-  const currentIndex = Math.max(steps.indexOf(normalized ?? ""), events.length ? steps.indexOf(events.at(-1)?.status.toUpperCase() ?? "") : 0);
+  const currentIndex = Math.max(
+    steps.indexOf(normalized ?? ""),
+    events.length ? steps.indexOf(events.at(-1)?.status.toUpperCase() ?? "") : -1
+  );
   return (
     <div className="shipment-timeline">
       {steps.map((step, index) => {

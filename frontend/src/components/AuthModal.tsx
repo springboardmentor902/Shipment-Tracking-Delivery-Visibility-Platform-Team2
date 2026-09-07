@@ -18,7 +18,7 @@ type Props = {
   setRegisterName: (value: string) => void;
   setRegisterEmail: (value: string) => void;
   setRegisterPassword: (value: string) => void;
-  message?: string;
+  feedback?: { text: string; tone: "success" | "error" };
 }
 
 export default function AuthModal(props: Props) {
@@ -29,7 +29,7 @@ export default function AuthModal(props: Props) {
         <p className="eyebrow">SHIPTRACK PRO</p>
         <h2 id="auth-title">{props.mode === "login" ? "Welcome back" : "Create your account"}</h2>
         <p className="subtitle">{props.mode === "login" ? "Sign in to manage your delivery operations." : "Start tracking shipments with your team."}</p>
-        {props.message && !props.message.includes("Register as") && <p className="auth-feedback" role="alert">{props.message}</p>}
+        {props.feedback && <p className={`auth-feedback ${props.feedback.tone}`} role="alert">{props.feedback.text}</p>}
         <div className="auth-switcher">
           <button className={props.mode === "login" ? "active" : ""} onClick={() => props.onModeChange("login")}>Login</button>
           <button className={props.mode === "register" ? "active" : ""} onClick={() => props.onModeChange("register")}>Register</button>

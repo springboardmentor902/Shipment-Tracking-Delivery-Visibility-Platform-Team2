@@ -2,6 +2,7 @@ package com.shiptrack.shiptrackpro.integration.maps;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.shiptrack.shiptrackpro.dto.RouteAlternativeDTO;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
@@ -18,6 +19,8 @@ import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.Optional;
+import java.util.ArrayList;
+import java.util.List;
 
 /**
  * Small HTTP-only Google Maps implementation. The API key is resolved from
@@ -70,8 +73,23 @@ public class GoogleMapsHttpClient implements GoogleMapsClient {
             GeoCoordinates origin,
             GeoCoordinates destination
     ) {
+        return getAlternativeRoutes(origin, destination)
+                .stream()
+                .findFirst()
+                .map(route -> new RouteMetrics(
+                        route.distanceKm(),
+                        route.trafficAdjustedDurationMinutes() == null
+                                ? route.durationMinutes()
+                                : route.trafficAdjustedDurationMinutes()));
+    }
+
+    @Override
+    public List<RouteAlternativeDTO> getAlternativeRoutes(
+            GeoCoordinates origin,
+            GeoCoordinates destination
+    ) {
         if (!isConfigured() || origin == null || destination == null) {
-            return Optional.empty();
+            return List.of();
         }
 
         String originCoordinates = origin.latitude() + "," + origin.longitude();
@@ -82,12 +100,14 @@ public class GoogleMapsHttpClient implements GoogleMapsClient {
                         + "?origin=" + encode(originCoordinates)
                         + "&destination=" + encode(destinationCoordinates)
                         + "&departure_time=now"
+                        + "&alternatives=true"
                         + "&units=metric"
                         + "&key=" + encode(apiKey)
         );
 
         return executeGoogleRequest(uri)
-                .flatMap(this::toRouteMetrics);
+                .map(this::toRouteAlternatives)
+                .orElseGet(List::of);
     }
 
     private boolean isConfigured() {
@@ -154,41 +174,68 @@ public class GoogleMapsHttpClient implements GoogleMapsClient {
     }
 
     private Optional<RouteMetrics> toRouteMetrics(JsonNode root) {
+        return toRouteAlternatives(root).stream()
+                .findFirst()
+                .map(route -> new RouteMetrics(route.distanceKm(),
+                        route.trafficAdjustedDurationMinutes() == null
+                                ? route.durationMinutes()
+                                : route.trafficAdjustedDurationMinutes()));
+    }
+
+    private List<RouteAlternativeDTO> toRouteAlternatives(JsonNode root) {
+        List<RouteAlternativeDTO> alternatives = new ArrayList<>();
         JsonNode routes = root.path("routes");
-        if (!routes.isArray() || routes.isEmpty()) {
-            return Optional.empty();
+        if (!routes.isArray()) {
+            return alternatives;
         }
 
-        JsonNode legs = routes.get(0).path("legs");
-        if (!legs.isArray() || legs.isEmpty()) {
-            return Optional.empty();
+        for (JsonNode route : routes) {
+            JsonNode legs = route.path("legs");
+            if (!legs.isArray() || legs.isEmpty()) {
+                continue;
+            }
+
+            long distanceMeters = 0;
+            long standardSeconds = 0;
+            long trafficSeconds = 0;
+            boolean hasTrafficDuration = true;
+
+            for (JsonNode leg : legs) {
+                JsonNode distance = leg.path("distance").path("value");
+                JsonNode duration = leg.path("duration").path("value");
+                JsonNode trafficDuration = leg.path("duration_in_traffic").path("value");
+                if (!distance.canConvertToLong() || !duration.canConvertToLong()) {
+                    distanceMeters = -1;
+                    break;
+                }
+                distanceMeters += distance.asLong();
+                standardSeconds += duration.asLong();
+                if (trafficDuration.canConvertToLong()) {
+                    trafficSeconds += trafficDuration.asLong();
+                } else {
+                    hasTrafficDuration = false;
+                }
+            }
+
+            if (distanceMeters < 0 || standardSeconds <= 0) {
+                continue;
+            }
+
+            BigDecimal distanceKm = BigDecimal.valueOf(distanceMeters)
+                    .divide(BigDecimal.valueOf(1000), 2, RoundingMode.HALF_UP);
+            Integer durationMinutes = toMinutes(standardSeconds);
+            Integer trafficMinutes = hasTrafficDuration ? toMinutes(trafficSeconds) : durationMinutes;
+            String summary = route.path("summary").asText("Suggested route");
+
+            alternatives.add(new RouteAlternativeDTO(
+                    distanceKm, durationMinutes, trafficMinutes, summary));
         }
 
-        JsonNode leg = legs.get(0);
-        JsonNode distance = leg.path("distance").path("value");
-        JsonNode durationInTraffic = leg.path("duration_in_traffic").path("value");
-        JsonNode standardDuration = leg.path("duration").path("value");
+        return alternatives;
+    }
 
-        if (!distance.canConvertToLong()) {
-            return Optional.empty();
-        }
-
-        long durationSeconds = durationInTraffic.canConvertToLong()
-                ? durationInTraffic.asLong()
-                : standardDuration.asLong(-1);
-
-        if (durationSeconds < 0) {
-            return Optional.empty();
-        }
-
-        BigDecimal distanceKm = BigDecimal.valueOf(distance.asLong())
-                .divide(BigDecimal.valueOf(1000), 2, RoundingMode.HALF_UP);
-        int estimatedMinutes = Math.max(
-                1,
-                (int) Math.ceil(durationSeconds / 60.0)
-        );
-
-        return Optional.of(new RouteMetrics(distanceKm, estimatedMinutes));
+    private int toMinutes(long seconds) {
+        return Math.max(1, (int) Math.ceil(seconds / 60.0));
     }
 
     private String encode(String value) {

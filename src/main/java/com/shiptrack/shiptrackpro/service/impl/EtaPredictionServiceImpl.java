@@ -1,6 +1,7 @@
 package com.shiptrack.shiptrackpro.service.impl;
 
 import com.shiptrack.shiptrackpro.dto.EtaPredictionResponse;
+import com.shiptrack.shiptrackpro.dto.EtaOverrideRequest;
 import com.shiptrack.shiptrackpro.entity.EtaPrediction;
 import com.shiptrack.shiptrackpro.entity.Route;
 import com.shiptrack.shiptrackpro.entity.Shipment;
@@ -12,6 +13,7 @@ import com.shiptrack.shiptrackpro.repository.TrackingEventRepository;
 import com.shiptrack.shiptrackpro.service.EtaPredictionService;
 import com.shiptrack.shiptrackpro.service.NotificationService;
 import com.shiptrack.shiptrackpro.service.ShipmentAccessService;
+import com.shiptrack.shiptrackpro.service.CurrentUserService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
@@ -42,6 +44,7 @@ public class EtaPredictionServiceImpl implements EtaPredictionService {
     private final TrackingEventRepository trackingEventRepository;
     private final ShipmentAccessService shipmentAccessService;
     private final NotificationService notificationService;
+    private final CurrentUserService currentUserService;
 
     @Value("${app.eta.delay-risk-threshold:7.0}")
     private BigDecimal delayRiskThreshold;
@@ -63,8 +66,36 @@ public class EtaPredictionServiceImpl implements EtaPredictionService {
         shipmentAccessService.requireCanViewShipment(shipment);
         return etaPredictionRepository.findByShipment_Id(shipmentId)
                 .map(this::toResponse)
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND,
-                        "No ETA prediction exists for this shipment yet"));
+                .orElseGet(() -> initialPrediction(shipment));
+    }
+
+    @Override
+    @Transactional
+    public EtaPredictionResponse overridePrediction(Long shipmentId, EtaOverrideRequest request) {
+        Shipment shipment = findShipment(shipmentId);
+        if (!currentUserService.hasRole(currentUserService.getRequiredCurrentUser(), "ADMINISTRATOR")) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN,
+                    "Only an administrator can change the ETA prediction");
+        }
+
+        EtaPrediction prediction = etaPredictionRepository.findByShipment_Id(shipmentId)
+                .orElseGet(() -> newPredictionFromInitialEstimate(shipment));
+        prediction.setShipment(shipment);
+        prediction.setPredictedDeliveryTime(request.getPredictedDeliveryTime());
+        prediction.setDelayRiskScore(BigDecimal.valueOf(3));
+        prediction.setConfidenceScore(BigDecimal.valueOf(90));
+        prediction.setFactors("Manually adjusted by an administrator"
+                + (request.getReason() == null || request.getReason().isBlank()
+                ? "." : ": " + request.getReason().trim()));
+        prediction.setManuallyAdjusted(true);
+        prediction.setOverrideReason(request.getReason() == null ? null : request.getReason().trim());
+        prediction.setCalculatedAt(LocalDateTime.now());
+
+        EtaPrediction saved = etaPredictionRepository.save(prediction);
+        if (shipment.getCreatedBy() != null) {
+            notificationService.send("ETA_UPDATE", shipment.getCreatedBy(), shipment);
+        }
+        return toResponse(saved);
     }
 
     @Override
@@ -99,11 +130,16 @@ public class EtaPredictionServiceImpl implements EtaPredictionService {
 
         EtaPrediction prediction = etaPredictionRepository.findByShipment_Id(shipment.getId())
                 .orElseGet(EtaPrediction::new);
+        if (prediction.isManuallyAdjusted()) {
+            return Optional.of(toResponse(prediction));
+        }
         prediction.setShipment(shipment);
         prediction.setPredictedDeliveryTime(calculation.predictedDeliveryTime());
         prediction.setDelayRiskScore(calculation.delayRiskScore());
         prediction.setConfidenceScore(calculation.confidenceScore());
         prediction.setFactors(String.join("; ", calculation.factors()));
+        prediction.setManuallyAdjusted(false);
+        prediction.setOverrideReason(null);
         prediction.setCalculatedAt(LocalDateTime.now());
 
         EtaPrediction savedPrediction = etaPredictionRepository.save(prediction);
@@ -207,6 +243,25 @@ public class EtaPredictionServiceImpl implements EtaPredictionService {
                         "Shipment not found with id: " + shipmentId));
     }
 
+    private EtaPredictionResponse initialPrediction(Shipment shipment) {
+        return toResponse(newPredictionFromInitialEstimate(shipment));
+    }
+
+    private EtaPrediction newPredictionFromInitialEstimate(Shipment shipment) {
+        LocalDateTime initialArrival = shipment.getEstimatedDeliveryDate() == null
+                ? LocalDateTime.now().plusDays("EXPRESS".equalsIgnoreCase(shipment.getPriority()) ? 2 : 4)
+                : shipment.getEstimatedDeliveryDate();
+        return EtaPrediction.builder()
+                .shipment(shipment)
+                .predictedDeliveryTime(initialArrival)
+                .delayRiskScore(BigDecimal.valueOf(2))
+                .confidenceScore(BigDecimal.valueOf(55))
+                .factors("Initial prediction based on shipment priority. A route and live tracking updates will refine this estimate.")
+                .calculatedAt(LocalDateTime.now())
+                .manuallyAdjusted(false)
+                .build();
+    }
+
     private EtaPredictionResponse toResponse(EtaPrediction prediction) {
         return EtaPredictionResponse.builder()
                 .id(prediction.getId())
@@ -217,6 +272,10 @@ public class EtaPredictionServiceImpl implements EtaPredictionService {
                 .confidenceScore(prediction.getConfidenceScore())
                 .factors(prediction.getFactors())
                 .calculatedAt(prediction.getCalculatedAt())
+                .estimatedRemainingMinutes(Math.max(0, (int) Duration.between(
+                        LocalDateTime.now(), prediction.getPredictedDeliveryTime()).toMinutes()))
+                .manuallyAdjusted(prediction.isManuallyAdjusted())
+                .overrideReason(prediction.getOverrideReason())
                 .build();
     }
 

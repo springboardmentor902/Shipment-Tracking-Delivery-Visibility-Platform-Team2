@@ -6,16 +6,14 @@ import com.shiptrack.shiptrackpro.dto.RouteResponse;
 import com.shiptrack.shiptrackpro.entity.Route;
 import com.shiptrack.shiptrackpro.entity.Shipment;
 import com.shiptrack.shiptrackpro.entity.User;
-import com.shiptrack.shiptrackpro.integration.maps.GoogleMapsClient;
-import com.shiptrack.shiptrackpro.integration.maps.RouteMetrics;
 import com.shiptrack.shiptrackpro.repository.RouteRepository;
 import com.shiptrack.shiptrackpro.repository.ShipmentRepository;
 import com.shiptrack.shiptrackpro.repository.UserRepository;
 import com.shiptrack.shiptrackpro.service.RouteService;
+import com.shiptrack.shiptrackpro.service.RouteOptimizationService;
+import com.shiptrack.shiptrackpro.service.EtaPredictionService;
 import com.shiptrack.shiptrackpro.service.ShipmentAccessService;
 import lombok.RequiredArgsConstructor;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.GrantedAuthority;
@@ -24,19 +22,18 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
 
-import java.util.Optional;
+import java.util.List;
 
 @Service
 @RequiredArgsConstructor
 public class RouteServiceImpl implements RouteService {
 
-    private static final Logger log = LoggerFactory.getLogger(RouteServiceImpl.class);
-
     private final RouteRepository routeRepository;
     private final ShipmentRepository shipmentRepository;
     private final UserRepository userRepository;
-    private final GoogleMapsClient googleMapsClient;
+    private final RouteOptimizationService routeOptimizationService;
     private final ShipmentAccessService shipmentAccessService;
+    private final EtaPredictionService etaPredictionService;
 
     @Override
     @Transactional
@@ -48,13 +45,6 @@ public class RouteServiceImpl implements RouteService {
 
         assignCurrentOperatorWhenUnassigned(shipment, authentication);
         requireAssignedOperatorOrAdministrator(shipment, authentication);
-
-        if (routeRepository.existsByShipment_Id(shipment.getId())) {
-            throw new ResponseStatusException(
-                    HttpStatus.CONFLICT,
-                    "A route already exists for shipment id: " + shipment.getId()
-            );
-        }
 
         String origin = valueOrFallback(request.getOrigin(), shipment.getPickupAddress());
         String destination = valueOrFallback(request.getDestination(), shipment.getDeliveryAddress());
@@ -71,17 +61,35 @@ public class RouteServiceImpl implements RouteService {
                 ? null
                 : findLogisticsOperator(request.getDriverId());
 
+        RouteOptimizationService.RouteOptimizationResult optimization =
+                routeOptimizationService.optimize(origin, destination);
+        var selectedAlternative = optimization.selectedAlternative();
+
+        // Rerouting retains the old record for the shipment history while the
+        // new route becomes the single active route.
+        routeRepository.markCurrentRoutesAsHistorical(shipment.getId());
+
         Route route = Route.builder()
                 .shipment(shipment)
                 .driver(driver)
                 .origin(origin)
                 .destination(destination)
                 .waypoints(blankToNull(request.getWaypoints()))
-                .trafficCondition(blankToNull(request.getTrafficCondition()))
+                .trafficCondition(valueOrFallback(request.getTrafficCondition(),
+                        selectedAlternative == null ? "NORMAL" : "LIVE_TRAFFIC"))
+                .distanceKm(selectedAlternative == null ? null : selectedAlternative.distanceKm())
+                .estimatedTimeMinutes(selectedAlternative == null
+                        ? null
+                        : selectedAlternative.trafficAdjustedDurationMinutes())
+                .routeSummary(selectedAlternative == null
+                        ? origin + " to " + destination
+                        : selectedAlternative.routeSummary())
+                .selectionReason(optimization.selectionReason())
+                .isCurrent(true)
                 .build();
 
         Route savedRoute = routeRepository.save(route);
-        populateMetricsWithoutBlockingSave(savedRoute);
+        etaPredictionService.recalculateAfterTrackingEvent(shipment.getId());
 
         return toResponse(savedRoute);
     }
@@ -109,8 +117,20 @@ public class RouteServiceImpl implements RouteService {
         return toResponse(route);
     }
 
+    @Override
+    @Transactional(readOnly = true)
+    public List<RouteResponse> getRouteHistoryForShipment(Long shipmentId) {
+        Shipment shipment = shipmentRepository.findById(shipmentId)
+                .orElseThrow(() -> notFound("Shipment not found with id: " + shipmentId));
+        shipmentAccessService.requireCanViewShipment(shipment);
+        return routeRepository.findByShipment_IdOrderByCreatedAtDesc(shipmentId)
+                .stream()
+                .map(this::toResponse)
+                .toList();
+    }
+
     private Route findRoute(Long shipmentId) {
-        return routeRepository.findByShipmentId(shipmentId)
+        return routeRepository.findByShipment_IdAndIsCurrentTrue(shipmentId)
                 .orElseThrow(() -> notFound(
                         "Route not found for shipment id: " + shipmentId
                 ));
@@ -215,24 +235,6 @@ public class RouteServiceImpl implements RouteService {
                 .anyMatch("ROLE_ADMINISTRATOR"::equals);
     }
 
-    private void populateMetricsWithoutBlockingSave(Route route) {
-        try {
-            Optional<RouteMetrics> metrics = googleMapsClient.calculateRoute(
-                    route.getOrigin(),
-                    route.getDestination()
-            );
-
-            metrics.ifPresent(result -> {
-                route.setDistanceKm(result.distanceKm());
-                route.setEstimatedTimeMinutes(result.estimatedTimeMinutes());
-            });
-        } catch (RuntimeException exception) {
-            // Route creation must succeed even if an external Maps client fails.
-            log.warn("Unable to populate Google Maps route metrics; saving route without them: {}",
-                    exception.getMessage());
-        }
-    }
-
     private RouteResponse toResponse(Route route) {
         Shipment shipment = route.getShipment();
         User driver = route.getDriver();
@@ -251,6 +253,9 @@ public class RouteServiceImpl implements RouteService {
                 .estimatedTimeMinutes(route.getEstimatedTimeMinutes())
                 .actualTimeMinutes(route.getActualTimeMinutes())
                 .trafficCondition(route.getTrafficCondition())
+                .isCurrent(route.isCurrent())
+                .routeSummary(route.getRouteSummary())
+                .selectionReason(route.getSelectionReason())
                 .createdAt(route.getCreatedAt())
                 .updatedAt(route.getUpdatedAt())
                 .build();

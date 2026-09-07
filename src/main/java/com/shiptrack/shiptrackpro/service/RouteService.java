@@ -4,6 +4,8 @@ import com.shiptrack.shiptrackpro.dto.DriverAssignmentRequest;
 import com.shiptrack.shiptrackpro.dto.RouteRequest;
 import com.shiptrack.shiptrackpro.dto.RouteResponse;
 
+import java.util.List;
+
 public interface RouteService {
 
     RouteResponse createRoute(RouteRequest request);
@@ -14,4 +16,6 @@ public interface RouteService {
     );
 
     RouteResponse getRouteForShipment(Long shipmentId);
+
+    List<RouteResponse> getRouteHistoryForShipment(Long shipmentId);
 }
