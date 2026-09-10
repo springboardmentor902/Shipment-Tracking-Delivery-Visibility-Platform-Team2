@@ -1,9 +1,11 @@
 "use client";
 
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
+import type { Map as LeafletMap } from "leaflet";
 import Layout from "../src/components/Layout";
 import AnalyticsDashboard from "../src/components/AnalyticsDashboard";
 import AuthModal from "../src/components/AuthModal";
+import type { RegistrationRole } from "../src/components/AuthModal";
 import LoadingSkeleton from "../src/components/LoadingSkeleton";
 import PodVerificationQueue from "../src/components/PodVerificationQueue";
 import PublicTracker from "../src/components/PublicTracker";
@@ -18,7 +20,7 @@ import type { DashboardTab } from "../src/types/dashboard";
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8081";
 
 type PackageItem = { description: string; quantity: number; fragile: boolean };
-type Shipment = { id: number; trackingNumber: string; status: string; priority?: string; pickupAddress: string; deliveryAddress: string; packages: PackageItem[]; createdAt?: string; estimatedDeliveryDate?: string };
+type Shipment = { id: number; trackingNumber: string; status: string; priority?: string; pickupAddress: string; deliveryAddress: string; pickupLatitude?: number; pickupLongitude?: number; deliveryLatitude?: number; deliveryLongitude?: number; packages: PackageItem[]; createdAt?: string; estimatedDeliveryDate?: string };
 type Eta = { predictedDeliveryTime: string; delayRiskScore: number; confidenceScore: number; factors: string; estimatedRemainingMinutes?: number; manuallyAdjusted?: boolean; overrideReason?: string };
 type TrackingEvent = { id: number; status: string; location?: string; eventTimestamp: string };
 type Notification = { id: number; shipmentId?: number; title: string; message: string; readAt?: string };
@@ -46,21 +48,9 @@ type Pod = {
   deliveredAt?: string;
 };
 
-type LeafletMap = { remove: () => void; setView: (point: [number, number], zoom: number) => LeafletMap; fitBounds: (bounds: unknown, options?: { padding: [number, number] }) => void };
-type LeafletLibrary = {
-  map: (element: HTMLDivElement) => LeafletMap;
-  tileLayer: (url: string, options: { attribution: string }) => { addTo: (map: LeafletMap) => void };
-  marker: (point: [number, number]) => { addTo: (map: LeafletMap) => { bindPopup: (text: string) => void } };
-  polyline: (points: [number, number][], options: { color: string; weight: number }) => { addTo: (map: LeafletMap) => { getBounds: () => unknown } };
-};
-
-declare global {
-  interface Window { L?: LeafletLibrary }
-}
-
 function DeliveryMap({ shipment, onRouteReady }: { shipment?: Shipment; onRouteReady: (estimate?: { minutes: number; expectedArrival: string }) => void }) {
   const mapElement = useRef<HTMLDivElement>(null);
-  const mapInstance = useRef<LeafletMap | undefined>(undefined);
+  const mapInstance = useRef<LeafletMap | null>(null);
   const [mapMessage, setMapMessage] = useState("Load a shipment to see its OpenStreetMap route.");
 
   useEffect(() => {
@@ -68,29 +58,33 @@ function DeliveryMap({ shipment, onRouteReady }: { shipment?: Shipment; onRouteR
     let cancelled = false;
     onRouteReady(undefined);
 
-    async function loadLeaflet() {
-      if (window.L) return;
-      if (!document.querySelector('link[data-leaflet]')) {
-        const style = document.createElement("link");
-        style.rel = "stylesheet";
-        style.href = "https://unpkg.com/leaflet@1.9.4/dist/leaflet.css";
-        style.dataset.leaflet = "true";
-        document.head.appendChild(style);
-      }
-      await new Promise<void>((resolve, reject) => {
-        const script = document.createElement("script");
-        script.src = "https://unpkg.com/leaflet@1.9.4/dist/leaflet.js";
-        script.onload = () => resolve();
-        script.onerror = () => reject(new Error("Could not load the map library."));
-        document.body.appendChild(script);
-      });
-    }
-
     async function findAddress(address: string) {
-      const response = await fetch(`https://nominatim.openstreetmap.org/search?format=jsonv2&limit=1&q=${encodeURIComponent(address)}`);
+      const response = await fetch(`https://nominatim.openstreetmap.org/search?format=jsonv2&limit=1&countrycodes=in&q=${encodeURIComponent(address)}`);
+      if (!response.ok) throw new Error("Could not find the shipment addresses.");
       const places = await response.json();
       if (!places.length) throw new Error("Address not found on OpenStreetMap.");
       return [Number(places[0].lat), Number(places[0].lon)] as [number, number];
+    }
+
+    function savedPoint(latitude?: number, longitude?: number): [number, number] | undefined {
+      return Number.isFinite(latitude) && Number.isFinite(longitude)
+        ? [latitude as number, longitude as number]
+        : undefined;
+    }
+
+    async function loadRoadRoute(origin: [number, number], destination: [number, number]) {
+      const controller = new AbortController();
+      const timeout = window.setTimeout(() => controller.abort(), 12_000);
+      try {
+        const response = await fetch(
+          `https://routing.openstreetmap.de/routed-car/route/v1/driving/${origin[1]},${origin[0]};${destination[1]},${destination[0]}?overview=full&geometries=geojson`,
+          { signal: controller.signal },
+        );
+        if (!response.ok) throw new Error("Routing service is unavailable.");
+        return await response.json();
+      } finally {
+        window.clearTimeout(timeout);
+      }
     }
 
     async function showMap() {
@@ -98,36 +92,47 @@ function DeliveryMap({ shipment, onRouteReady }: { shipment?: Shipment; onRouteR
         const element = mapElement.current;
         if (!element) return;
         setMapMessage("Finding pickup and delivery locations...");
-        await loadLeaflet();
-        const [origin, destination] = await Promise.all([findAddress(shipment!.pickupAddress), findAddress(shipment!.deliveryAddress)]);
+        const { default: L } = await import("leaflet");
+        const savedOrigin = savedPoint(shipment!.pickupLatitude, shipment!.pickupLongitude);
+        const savedDestination = savedPoint(shipment!.deliveryLatitude, shipment!.deliveryLongitude);
+        const [origin, destination] = await Promise.all([
+          savedOrigin ?? findAddress(shipment!.pickupAddress),
+          savedDestination ?? findAddress(shipment!.deliveryAddress),
+        ]);
         if (cancelled) return;
         mapInstance.current?.remove();
-        if (!window.L) throw new Error("Map library is not ready.");
-        const map = window.L.map(element).setView(origin, 7);
+        const map = L.map(element).setView(origin, 7);
         mapInstance.current = map;
-        window.L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", { attribution: "© OpenStreetMap contributors" }).addTo(map);
-        window.L.marker(origin).addTo(map).bindPopup("Pickup");
-        window.L.marker(destination).addTo(map).bindPopup("Delivery");
-        const routeResponse = await fetch(`https://router.project-osrm.org/route/v1/driving/${origin[1]},${origin[0]};${destination[1]},${destination[0]}?overview=full&geometries=geojson`);
-        const routeData = await routeResponse.json();
-        const coordinates = routeData.routes?.[0]?.geometry?.coordinates;
-        if (coordinates) {
-          const line = coordinates.map(([longitude, latitude]: [number, number]) => [latitude, longitude]);
-          const routeLine = window.L.polyline(line, { color: "#2563eb", weight: 5 }).addTo(map);
+        L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+          attribution: "© OpenStreetMap contributors",
+          maxZoom: 19,
+        }).addTo(map);
+        L.circleMarker(origin, { radius: 8, color: "#ffffff", weight: 3, fillColor: "#2563eb", fillOpacity: 1 }).addTo(map).bindPopup("Pickup");
+        L.circleMarker(destination, { radius: 8, color: "#ffffff", weight: 3, fillColor: "#16a34a", fillOpacity: 1 }).addTo(map).bindPopup("Delivery");
+
+        try {
+          const routeData = await loadRoadRoute(origin, destination);
+          const coordinates = routeData.routes?.[0]?.geometry?.coordinates as [number, number][] | undefined;
+          if (!coordinates?.length) throw new Error("No road route was returned.");
+          const line = coordinates.map(([longitude, latitude]) => [latitude, longitude] as [number, number]);
+          const routeLine = L.polyline(line, { color: "#2563eb", weight: 5 }).addTo(map);
           map.fitBounds(routeLine.getBounds(), { padding: [25, 25] });
           const minutes = Math.round(routeData.routes[0].duration / 60);
           onRouteReady({ minutes, expectedArrival: new Date(Date.now() + minutes * 60000).toISOString() });
-        } else {
-          map.fitBounds([origin, destination], { padding: [25, 25] });
+          setMapMessage("Road route loaded successfully.");
+        } catch {
+          const fallbackLine = L.polyline([origin, destination], { color: "#64748b", weight: 3, dashArray: "8 8" }).addTo(map);
+          map.fitBounds(fallbackLine.getBounds(), { padding: [25, 25] });
+          setMapMessage("Locations loaded. Road directions are temporarily unavailable.");
         }
-        setMapMessage("OpenStreetMap route loaded.");
+        window.setTimeout(() => map.invalidateSize(), 0);
       } catch (error) {
         setMapMessage(error instanceof Error ? error.message : "Could not load the map.");
       }
     }
 
     showMap();
-    return () => { cancelled = true; mapInstance.current?.remove(); mapInstance.current = undefined; };
+    return () => { cancelled = true; mapInstance.current?.remove(); mapInstance.current = null; };
   }, [shipment, onRouteReady]);
 
   return <section className="card map-card"><h2>Live route map</h2><div className="map" ref={mapElement} /><small>{mapMessage}</small></section>;
@@ -173,7 +178,7 @@ function loginErrorMessage(error: unknown) {
 }
 
 function registrationErrorMessage(error: unknown) {
-  if (error instanceof ApiError && (error.status === 409 || error.status === 403)) {
+  if (error instanceof ApiError && error.status === 409) {
     return "An account with this email address already exists. Please log in instead.";
   }
   return errorMessage(error, "We could not create your account. Please check the details and try again.");
@@ -233,6 +238,7 @@ export default function Home() {
   const [registerName, setRegisterName] = useState("");
   const [registerEmail, setRegisterEmail] = useState("");
   const [registerPassword, setRegisterPassword] = useState("");
+  const [registerRole, setRegisterRole] = useState<RegistrationRole>("CUSTOMER");
   const [shipmentId, setShipmentId] = useState("");
   const [shipment, setShipment] = useState<Shipment>();
   const [eta, setEta] = useState<Eta>();
@@ -249,7 +255,7 @@ export default function Home() {
   const [drilldown, setDrilldown] = useState<DrilldownCategory>();
   const [drilldownShipments, setDrilldownShipments] = useState<ShipmentWithRisk[]>([]);
   const [drilldownLoading, setDrilldownLoading] = useState(false);
-  const [message, setMessage] = useState("Register as a customer, then log in to create a shipment.");
+  const [message, setMessage] = useState("Create an account, then sign in to manage your shipments.");
   const [packages, setPackages] = useState<PackageItem[]>([{ description: "", quantity: 1, fragile: false }]);
   const [podFile, setPodFile] = useState<File>();
   const [recipient, setRecipient] = useState("");
@@ -304,7 +310,7 @@ export default function Home() {
     }
   }
 
-  async function registerCustomer(event: FormEvent<HTMLFormElement>) {
+  async function registerUser(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setAuthFeedback(undefined);
     try {
@@ -314,12 +320,13 @@ export default function Home() {
           fullName: registerName,
           email: registerEmail,
           password: registerPassword,
-          role: "CUSTOMER",
+          role: registerRole,
         }),
       });
       setLoginEmail(registerEmail);
       setLoginPassword(registerPassword);
-      const text = "Customer account created. You can now sign in.";
+      const roleLabel = registerRole === "BUSINESS_CLIENT" ? "Business Client" : "Customer";
+      const text = `${roleLabel} account created. You can now sign in.`;
       setAuthFeedback({ text, tone: "success" });
       showToast(text, "success");
       setAuthMode("login");
@@ -620,7 +627,7 @@ export default function Home() {
     ?? overviewStats?.delayedShipmentCount
     ?? overviewStats?.statusBreakdown?.DELAYED
     ?? (eta?.delayRiskScore && eta.delayRiskScore >= 7 ? 1 : 0);
-  const authModal = showAuth && <AuthModal mode={authMode} onModeChange={(mode) => { setAuthMode(mode); setAuthFeedback(undefined); }} onClose={() => { setShowAuth(false); setAuthFeedback(undefined); }} onLogin={login} onRegister={registerCustomer} loginEmail={loginEmail} loginPassword={loginPassword} registerName={registerName} registerEmail={registerEmail} registerPassword={registerPassword} setLoginEmail={setLoginEmail} setLoginPassword={setLoginPassword} setRegisterName={setRegisterName} setRegisterEmail={setRegisterEmail} setRegisterPassword={setRegisterPassword} feedback={authFeedback} />;
+  const authModal = showAuth && <AuthModal mode={authMode} onModeChange={(mode) => { setAuthMode(mode); setAuthFeedback(undefined); }} onClose={() => { setShowAuth(false); setAuthFeedback(undefined); }} onLogin={login} onRegister={registerUser} loginEmail={loginEmail} loginPassword={loginPassword} registerName={registerName} registerEmail={registerEmail} registerPassword={registerPassword} registerRole={registerRole} setLoginEmail={setLoginEmail} setLoginPassword={setLoginPassword} setRegisterName={setRegisterName} setRegisterEmail={setRegisterEmail} setRegisterPassword={setRegisterPassword} setRegisterRole={setRegisterRole} feedback={authFeedback} />;
 
   if (!token) {
     return <Layout userName={currentUser?.fullName} role={role} activeTab={activeTab} onTabChange={changeTab} onOpenAuth={() => setShowAuth(true)} onLogout={logout}>
@@ -644,9 +651,6 @@ export default function Home() {
       <div className="hero-status"><span className="status-dot" /> Live operations <small>Updated just now</small></div>
     </section>
 
-    {false && <section className="grid"><form className="card form" onSubmit={registerCustomer}><h2>Create customer account</h2><input required value={registerName} onChange={(event) => setRegisterName(event.target.value)} placeholder="Full name" /><input required type="email" value={registerEmail} onChange={(event) => setRegisterEmail(event.target.value)} placeholder="Email" /><input required minLength={8} type="password" value={registerPassword} onChange={(event) => setRegisterPassword(event.target.value)} placeholder="Password (minimum 8 characters)" /><button type="submit">Register as customer</button></form>
-      <form className="card form" onSubmit={login}><h2>Login</h2><input required type="email" value={loginEmail} onChange={(event) => setLoginEmail(event.target.value)} placeholder="Email" /><input required type="password" value={loginPassword} onChange={(event) => setLoginPassword(event.target.value)} placeholder="Password" /><button type="submit">Login</button><small>Customers can create shipments. Admin is used for verification and management.</small></form></section>
-    }
     {toast && <div className={`toast ${toast.tone}`} role="status">{toast.text}</div>}
 
     {activeTab === "overview" && <section className="summary-grid">

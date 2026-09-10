@@ -72,6 +72,7 @@ public class RouteServiceImpl implements RouteService {
         Route route = Route.builder()
                 .shipment(shipment)
                 .driver(driver)
+                .createdBy(findCurrentUser(authentication))
                 .origin(origin)
                 .destination(destination)
                 .waypoints(blankToNull(request.getWaypoints()))
@@ -212,12 +213,7 @@ public class RouteServiceImpl implements RouteService {
     }
 
     private User currentOperator(Authentication authentication) {
-        String email = authentication.getName();
-        User user = userRepository.findByEmail(email)
-                .orElseThrow(() -> new ResponseStatusException(
-                        HttpStatus.FORBIDDEN,
-                        "Authenticated logistics operator account was not found"
-                ));
+        User user = findCurrentUser(authentication);
 
         if (!"LOGISTICS_OPERATOR".equals(user.getRole())) {
             throw new ResponseStatusException(
@@ -227,6 +223,14 @@ public class RouteServiceImpl implements RouteService {
         }
 
         return user;
+    }
+
+    private User findCurrentUser(Authentication authentication) {
+        return userRepository.findByEmail(authentication.getName())
+                .orElseThrow(() -> new ResponseStatusException(
+                        HttpStatus.FORBIDDEN,
+                        "Authenticated user account was not found"
+                ));
     }
 
     private boolean isAdministrator(Authentication authentication) {

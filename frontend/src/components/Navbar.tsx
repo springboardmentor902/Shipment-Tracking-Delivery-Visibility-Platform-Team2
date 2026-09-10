@@ -15,6 +15,8 @@ export default function Navbar({
   onOpenAuth,
   onLogout,
 }: Props) {
+  const roleLabel = role ? role.toLowerCase().replaceAll("_", " ").replace(/\b\w/g, (letter) => letter.toUpperCase()) : "Not signed in";
+
   function toggleTheme() {
     const nextTheme = document.documentElement.dataset.theme === "dark" ? "light" : "dark";
     document.documentElement.dataset.theme = nextTheme;
@@ -52,7 +54,7 @@ export default function Navbar({
         </button>
         <div className="profile">
           <span className="avatar">{(userName?.[0] ?? "G").toUpperCase()}</span>
-          <div><strong>{userName ?? "Guest user"}</strong><span>{role ?? "Not signed in"}</span></div>
+          <div><strong>{userName ?? "Guest user"}</strong><span>{roleLabel}</span></div>
         </div>
       </div>
     </header>

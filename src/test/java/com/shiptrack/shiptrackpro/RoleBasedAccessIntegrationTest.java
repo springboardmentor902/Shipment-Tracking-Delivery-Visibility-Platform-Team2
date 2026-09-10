@@ -98,6 +98,34 @@ class RoleBasedAccessIntegrationTest {
                 .andExpect(status().isForbidden());
     }
 
+    @Test
+    void publicRegistrationAllowsCustomerAndBusinessRolesOnly() throws Exception {
+        mockMvc.perform(post("/api/auth/register")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "fullName": "Business User",
+                                  "email": "new.business@example.com",
+                                  "password": "Password@123",
+                                  "role": "BUSINESS_CLIENT"
+                                }
+                                """))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.role").value("BUSINESS_CLIENT"));
+
+        mockMvc.perform(post("/api/auth/register")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "fullName": "Self Assigned Operator",
+                                  "email": "self.operator@example.com",
+                                  "password": "Password@123",
+                                  "role": "LOGISTICS_OPERATOR"
+                                }
+                                """))
+                .andExpect(status().isForbidden());
+    }
+
     private User saveUser(String name, String email, String role) {
         return userRepository.save(User.builder()
                 .fullName(name)

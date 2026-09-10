@@ -1,5 +1,6 @@
 package com.shiptrack.shiptrackpro.dto;
 
+import com.fasterxml.jackson.annotation.JsonProperty;
 import lombok.Builder;
 import lombok.Data;
 
@@ -26,6 +27,7 @@ public class RouteResponse {
     private Integer estimatedTimeMinutes;
     private Integer actualTimeMinutes;
     private String trafficCondition;
+    @JsonProperty("isCurrent")
     private boolean isCurrent;
     private String routeSummary;
     private String selectionReason;

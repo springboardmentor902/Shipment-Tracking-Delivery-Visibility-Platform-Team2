@@ -28,7 +28,7 @@ pom.xml     Backend dependencies
 - Node.js 20+
 - PostgreSQL
 
-Create a PostgreSQL database named `shiptrack`, then provide the required values through environment variables. Never commit real passwords or API keys.
+Create a PostgreSQL database named `shiptrack_pro_infosys`, then provide the required values through environment variables. This keeps the project data separate from older ShipTrack databases. Never commit real passwords or API keys.
 
 ### Linux/macOS
 

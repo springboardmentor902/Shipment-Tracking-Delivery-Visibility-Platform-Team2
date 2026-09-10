@@ -2,6 +2,19 @@
 
 import { FormEvent } from "react";
 
+export type RegistrationRole = "CUSTOMER" | "BUSINESS_CLIENT";
+
+const roleDetails: Record<RegistrationRole, { label: string; description: string }> = {
+  CUSTOMER: {
+    label: "Customer",
+    description: "Create and track your own shipments.",
+  },
+  BUSINESS_CLIENT: {
+    label: "Business Client",
+    description: "Manage business shipments, analytics, and reports.",
+  },
+};
+
 type Props = {
   mode: "login" | "register";
   onModeChange: (mode: "login" | "register") => void;
@@ -13,11 +26,13 @@ type Props = {
   registerName: string;
   registerEmail: string;
   registerPassword: string;
+  registerRole: RegistrationRole;
   setLoginEmail: (value: string) => void;
   setLoginPassword: (value: string) => void;
   setRegisterName: (value: string) => void;
   setRegisterEmail: (value: string) => void;
   setRegisterPassword: (value: string) => void;
+  setRegisterRole: (value: RegistrationRole) => void;
   feedback?: { text: string; tone: "success" | "error" };
 }
 
@@ -45,7 +60,23 @@ export default function AuthModal(props: Props) {
             <input required value={props.registerName} onChange={(event) => props.setRegisterName(event.target.value)} placeholder="Full name" />
             <input required type="email" value={props.registerEmail} onChange={(event) => props.setRegisterEmail(event.target.value)} placeholder="Work email" />
             <input required minLength={8} type="password" value={props.registerPassword} onChange={(event) => props.setRegisterPassword(event.target.value)} placeholder="Password (minimum 8 characters)" />
-            <button type="submit">Create customer account</button>
+            <label className="role-field">
+              <span>Account role</span>
+              <select
+                value={props.registerRole}
+                onChange={(event) => props.setRegisterRole(event.target.value as RegistrationRole)}
+              >
+                {Object.entries(roleDetails).map(([value, details]) => (
+                  <option key={value} value={value}>{details.label}</option>
+                ))}
+              </select>
+            </label>
+            <p className="role-description">
+              <strong>{roleDetails[props.registerRole].label}</strong>
+              {roleDetails[props.registerRole].description}
+            </p>
+            <button type="submit">Create {roleDetails[props.registerRole].label.toLowerCase()} account</button>
+            <small>Operator, Support Agent, and Administrator roles are assigned internally.</small>
           </form>
         )}
       </section>

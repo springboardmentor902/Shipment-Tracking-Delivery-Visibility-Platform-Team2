@@ -42,8 +42,8 @@ public class UserServiceImpl implements UserService {
         Role requestedRole;
 
         try {
-            requestedRole =
-                    Role.valueOf(request.getRole().toUpperCase());
+            requestedRole = Role.valueOf(
+                    request.getRole().trim().toUpperCase(Locale.ROOT));
         } catch (IllegalArgumentException e) {
             throw new ResponseStatusException(
                     HttpStatus.BAD_REQUEST,
@@ -53,10 +53,11 @@ public class UserServiceImpl implements UserService {
             );
         }
 
-        if (requestedRole == Role.ADMINISTRATOR) {
+        if (requestedRole != Role.CUSTOMER
+                && requestedRole != Role.BUSINESS_CLIENT) {
             throw new ResponseStatusException(
                     HttpStatus.FORBIDDEN,
-                    "Administrator accounts cannot be created through registration."
+                    "Only Customer and Business Client accounts can be created through public registration."
             );
         }
 

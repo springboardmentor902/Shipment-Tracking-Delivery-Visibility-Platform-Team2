@@ -2,7 +2,7 @@ package com.shiptrack.shiptrackpro.dto;
 
 import java.math.BigDecimal;
 
-/** A Google Maps route option evaluated at the current departure time. */
+/** A route option returned by the configured map provider. */
 public record RouteAlternativeDTO(
         BigDecimal distanceKm,
         Integer durationMinutes,
