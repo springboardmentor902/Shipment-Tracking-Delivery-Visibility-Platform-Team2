@@ -1,0 +1,7 @@
+-- Makes older local databases compatible with route history and re-routing.
+ALTER TABLE IF EXISTS routes DROP CONSTRAINT IF EXISTS uk_routes_shipment_id;
+ALTER TABLE IF EXISTS routes ADD COLUMN IF NOT EXISTS is_current BOOLEAN NOT NULL DEFAULT TRUE;
+ALTER TABLE IF EXISTS routes ADD COLUMN IF NOT EXISTS route_summary VARCHAR(1000);
+ALTER TABLE IF EXISTS routes ADD COLUMN IF NOT EXISTS selection_reason VARCHAR(1000);
+ALTER TABLE IF EXISTS eta_predictions ADD COLUMN IF NOT EXISTS manually_adjusted BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE IF EXISTS eta_predictions ADD COLUMN IF NOT EXISTS override_reason VARCHAR(500);
