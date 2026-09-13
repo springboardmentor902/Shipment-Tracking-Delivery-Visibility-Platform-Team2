@@ -10,6 +10,7 @@ import org.springframework.core.io.Resource;
 import org.springframework.http.MediaType;
 import org.springframework.http.MediaTypeFactory;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.ModelAttribute;
 import org.springframework.web.bind.annotation.PatchMapping;
@@ -29,6 +30,7 @@ public class ProofOfDeliveryController {
     private final ProofOfDeliveryService proofOfDeliveryService;
 
     @PostMapping(value = "/{shipmentId}", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    @PreAuthorize("hasRole('LOGISTICS_OPERATOR')")
     public ResponseEntity<ProofOfDeliveryResponse> submit(
             @PathVariable Long shipmentId,
             @Valid @ModelAttribute ProofOfDeliveryRequest request
@@ -38,6 +40,7 @@ public class ProofOfDeliveryController {
     }
 
     @PatchMapping("/{shipmentId}/verify")
+    @PreAuthorize("hasAnyRole('SUPPORT_AGENT', 'ADMINISTRATOR')")
     public ResponseEntity<ProofOfDeliveryResponse> verify(
             @PathVariable Long shipmentId,
             @Valid @RequestBody VerifyProofOfDeliveryRequest request
@@ -46,16 +49,19 @@ public class ProofOfDeliveryController {
     }
 
     @GetMapping("/pending")
+    @PreAuthorize("hasAnyRole('SUPPORT_AGENT', 'ADMINISTRATOR')")
     public ResponseEntity<List<ProofOfDeliveryResponse>> getPendingProofs() {
         return ResponseEntity.ok(proofOfDeliveryService.getPendingProofs());
     }
 
     @GetMapping("/{shipmentId}")
+    @PreAuthorize("hasAnyRole('CUSTOMER', 'BUSINESS_CLIENT', 'LOGISTICS_OPERATOR', 'SUPPORT_AGENT', 'ADMINISTRATOR')")
     public ResponseEntity<ProofOfDeliveryResponse> getForShipment(@PathVariable Long shipmentId) {
         return ResponseEntity.ok(proofOfDeliveryService.getForShipment(shipmentId));
     }
 
     @GetMapping("/files/{fileName:.+}")
+    @PreAuthorize("hasAnyRole('CUSTOMER', 'BUSINESS_CLIENT', 'LOGISTICS_OPERATOR', 'SUPPORT_AGENT', 'ADMINISTRATOR')")
     public ResponseEntity<Resource> getFile(@PathVariable String fileName) {
         Resource file = proofOfDeliveryService.loadAuthorizedFile(fileName);
         return ResponseEntity.ok()

@@ -1,59 +1,60 @@
 "use client";
 
-type Notification = { id: number; title: string; message: string; readAt?: string };
+import BrandLogo from "./BrandLogo";
 
 type Props = {
   userName?: string;
   role?: string;
-  notifications: Notification[];
-  showNotifications: boolean;
-  onToggleNotifications: () => void;
-  onMarkRead: (notification: Notification) => void;
   onOpenAuth: () => void;
+  onLogout: () => void;
 };
 
 export default function Navbar({
   userName,
   role,
-  notifications,
-  showNotifications,
-  onToggleNotifications,
-  onMarkRead,
   onOpenAuth,
+  onLogout,
 }: Props) {
-  const unreadCount = notifications.filter((item) => !item.readAt).length;
+  const roleLabel = role ? role.toLowerCase().replaceAll("_", " ").replace(/\b\w/g, (letter) => letter.toUpperCase()) : "Not signed in";
+
+  function toggleTheme() {
+    const nextTheme = document.documentElement.dataset.theme === "dark" ? "light" : "dark";
+    document.documentElement.dataset.theme = nextTheme;
+    localStorage.setItem("shiptrack-theme", nextTheme);
+    window.dispatchEvent(new CustomEvent("shiptrack-theme-change", { detail: nextTheme }));
+  }
+
   return (
     <header className="topbar">
       <div className="brand-mark">
-        <span className="brand-icon">S</span>
+        <BrandLogo />
         <div>
           <strong>ShipTrack</strong>
           <span>Delivery visibility</span>
         </div>
       </div>
       <div className="topbar-actions">
-        <button suppressHydrationWarning className="auth-button" onClick={onOpenAuth}>{userName ? "Account" : "Login / Register"}</button>
-        <div className="notification-area">
-          <button className="icon-button" onClick={onToggleNotifications} aria-label="Open notifications">
-            <span aria-hidden="true">♢</span>
-            {unreadCount > 0 && <span className="badge">{unreadCount}</span>}
-          </button>
-          {showNotifications && (
-            <div className="notification-panel">
-              <div className="panel-heading"><strong>Notifications</strong><span>{unreadCount} unread</span></div>
-              {!notifications.length && <p className="empty-state">No notifications yet.</p>}
-              {notifications.map((item) => (
-                <button key={item.id} className={`notification-item ${item.readAt ? "read" : ""}`} onClick={() => onMarkRead(item)}>
-                  <strong>{item.title}</strong>
-                  <span>{item.message}</span>
-                </button>
-              ))}
-            </div>
-          )}
-        </div>
+        <button
+          type="button"
+          className="theme-toggle"
+          onClick={toggleTheme}
+          aria-label="Toggle light and dark theme"
+          title="Toggle light and dark theme"
+        >
+          <span className="theme-moon" aria-hidden="true">☾</span>
+          <span className="theme-sun" aria-hidden="true">☀</span>
+          <span className="theme-label">Theme</span>
+        </button>
+        <button
+          suppressHydrationWarning
+          className="auth-button"
+          onClick={userName ? onLogout : onOpenAuth}
+        >
+          {userName ? "Log out" : "Login / Register"}
+        </button>
         <div className="profile">
           <span className="avatar">{(userName?.[0] ?? "G").toUpperCase()}</span>
-          <div><strong>{userName ?? "Guest user"}</strong><span>{role ?? "Not signed in"}</span></div>
+          <div><strong>{userName ?? "Guest user"}</strong><span>{roleLabel}</span></div>
         </div>
       </div>
     </header>

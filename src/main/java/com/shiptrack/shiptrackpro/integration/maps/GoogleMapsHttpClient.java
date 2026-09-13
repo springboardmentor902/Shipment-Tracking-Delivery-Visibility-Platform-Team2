@@ -23,8 +23,8 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * Small HTTP-only Google Maps implementation. The API key is resolved from
- * GOOGLE_MAPS_API_KEY (or the equivalent Spring property) and is never logged.
+ * Small HTTP map client. It tries Google Maps first and uses Geoapify when
+ * Google is unavailable. API keys are read from the environment and never logged.
  */
 @Service
 public class GoogleMapsHttpClient implements GoogleMapsClient {
@@ -36,17 +36,31 @@ public class GoogleMapsHttpClient implements GoogleMapsClient {
     private final String apiKey;
     private final String geocodingUrl;
     private final String directionsUrl;
+    private final String geoapifyGeocodingKey;
+    private final String geoapifyRoutingKey;
+    private final String geoapifyGeocodingUrl;
+    private final String geoapifyRoutingUrl;
 
     public GoogleMapsHttpClient(
             @Value("${google.maps.api-key:${GOOGLE_MAPS_API_KEY:}}") String apiKey,
             @Value("${google.maps.geocoding-url:https://maps.googleapis.com/maps/api/geocode/json}")
             String geocodingUrl,
             @Value("${google.maps.directions-url:https://maps.googleapis.com/maps/api/directions/json}")
-            String directionsUrl
+            String directionsUrl,
+            @Value("${geoapify.geocoding-api-key:}") String geoapifyGeocodingKey,
+            @Value("${geoapify.routing-api-key:}") String geoapifyRoutingKey,
+            @Value("${geoapify.geocoding-url:https://api.geoapify.com/v1/geocode/search}")
+            String geoapifyGeocodingUrl,
+            @Value("${geoapify.routing-url:https://api.geoapify.com/v1/routing}")
+            String geoapifyRoutingUrl
     ) {
         this.apiKey = apiKey;
         this.geocodingUrl = geocodingUrl;
         this.directionsUrl = directionsUrl;
+        this.geoapifyGeocodingKey = geoapifyGeocodingKey;
+        this.geoapifyRoutingKey = geoapifyRoutingKey;
+        this.geoapifyGeocodingUrl = geoapifyGeocodingUrl;
+        this.geoapifyRoutingUrl = geoapifyRoutingUrl;
         this.httpClient = HttpClient.newBuilder()
                 .connectTimeout(Duration.ofSeconds(5))
                 .build();
@@ -54,18 +68,25 @@ public class GoogleMapsHttpClient implements GoogleMapsClient {
 
     @Override
     public Optional<GeoCoordinates> geocode(String address) {
-        if (!isConfigured() || address == null || address.isBlank()) {
+        if (address == null || address.isBlank()) {
             return Optional.empty();
         }
 
-        URI uri = URI.create(
-                geocodingUrl
-                        + "?address=" + encode(address)
-                        + "&key=" + encode(apiKey)
-        );
+        if (hasText(apiKey)) {
+            URI uri = URI.create(
+                    geocodingUrl
+                            + "?address=" + encode(address)
+                            + "&key=" + encode(apiKey)
+            );
 
-        return executeGoogleRequest(uri)
-                .flatMap(this::toCoordinates);
+            Optional<GeoCoordinates> googleResult = executeGoogleRequest(uri)
+                    .flatMap(this::toCoordinates);
+            if (googleResult.isPresent()) {
+                return googleResult;
+            }
+        }
+
+        return geocodeWithGeoapify(address);
     }
 
     @Override
@@ -88,37 +109,52 @@ public class GoogleMapsHttpClient implements GoogleMapsClient {
             GeoCoordinates origin,
             GeoCoordinates destination
     ) {
-        if (!isConfigured() || origin == null || destination == null) {
+        if (origin == null || destination == null) {
             return List.of();
         }
 
-        String originCoordinates = origin.latitude() + "," + origin.longitude();
-        String destinationCoordinates = destination.latitude() + "," + destination.longitude();
+        if (hasText(apiKey)) {
+            String originCoordinates = origin.latitude() + "," + origin.longitude();
+            String destinationCoordinates = destination.latitude() + "," + destination.longitude();
 
-        URI uri = URI.create(
-                directionsUrl
-                        + "?origin=" + encode(originCoordinates)
-                        + "&destination=" + encode(destinationCoordinates)
-                        + "&departure_time=now"
-                        + "&alternatives=true"
-                        + "&units=metric"
-                        + "&key=" + encode(apiKey)
-        );
+            URI uri = URI.create(
+                    directionsUrl
+                            + "?origin=" + encode(originCoordinates)
+                            + "&destination=" + encode(destinationCoordinates)
+                            + "&departure_time=now"
+                            + "&alternatives=true"
+                            + "&units=metric"
+                            + "&key=" + encode(apiKey)
+            );
 
-        return executeGoogleRequest(uri)
-                .map(this::toRouteAlternatives)
-                .orElseGet(List::of);
+            List<RouteAlternativeDTO> googleRoutes = executeGoogleRequest(uri)
+                    .map(this::toRouteAlternatives)
+                    .orElseGet(List::of);
+            if (!googleRoutes.isEmpty()) {
+                return googleRoutes;
+            }
+        }
+
+        return getGeoapifyRoute(origin, destination);
     }
 
-    private boolean isConfigured() {
-        if (apiKey == null || apiKey.isBlank()) {
-            log.debug("Google Maps is not configured; route distance and ETA will remain empty");
-            return false;
-        }
-        return true;
+    private boolean hasText(String value) {
+        return value != null && !value.isBlank();
     }
 
     private Optional<JsonNode> executeGoogleRequest(URI uri) {
+        return executeRequest(uri, "Google Maps")
+                .filter(body -> {
+                    boolean successful = "OK".equals(body.path("status").asText());
+                    if (!successful) {
+                        log.warn("Google Maps did not return a route result (status={})",
+                                body.path("status").asText("unknown"));
+                    }
+                    return successful;
+                });
+    }
+
+    private Optional<JsonNode> executeRequest(URI uri, String provider) {
         HttpRequest request = HttpRequest.newBuilder(uri)
                 .timeout(Duration.ofSeconds(10))
                 .GET()
@@ -131,26 +167,84 @@ public class GoogleMapsHttpClient implements GoogleMapsClient {
             );
 
             if (response.statusCode() < 200 || response.statusCode() >= 300) {
-                log.warn("Google Maps request returned HTTP {}", response.statusCode());
+                log.warn("{} request returned HTTP {}", provider, response.statusCode());
                 return Optional.empty();
             }
 
-            JsonNode body = objectMapper.readTree(response.body());
-            if (!"OK".equals(body.path("status").asText())) {
-                log.warn("Google Maps request did not return a route result (status={})",
-                        body.path("status").asText("unknown"));
-                return Optional.empty();
-            }
-
-            return Optional.of(body);
+            return Optional.of(objectMapper.readTree(response.body()));
         } catch (InterruptedException exception) {
             Thread.currentThread().interrupt();
-            log.warn("Google Maps request was interrupted");
+            log.warn("{} request was interrupted", provider);
             return Optional.empty();
         } catch (IOException | RuntimeException exception) {
-            log.warn("Google Maps request failed: {}", exception.getMessage());
+            log.warn("{} request failed: {}", provider, exception.getMessage());
             return Optional.empty();
         }
+    }
+
+    private Optional<GeoCoordinates> geocodeWithGeoapify(String address) {
+        if (!hasText(geoapifyGeocodingKey)) {
+            return Optional.empty();
+        }
+
+        URI uri = URI.create(geoapifyGeocodingUrl
+                + "?text=" + encode(address)
+                + "&filter=countrycode:in"
+                + "&format=json"
+                + "&limit=1"
+                + "&apiKey=" + encode(geoapifyGeocodingKey));
+
+        return executeRequest(uri, "Geoapify")
+                .flatMap(body -> {
+                    JsonNode results = body.path("results");
+                    if (!results.isArray() || results.isEmpty()) {
+                        return Optional.empty();
+                    }
+                    JsonNode place = results.get(0);
+                    if (!place.hasNonNull("lat") || !place.hasNonNull("lon")) {
+                        return Optional.empty();
+                    }
+                    return Optional.of(new GeoCoordinates(
+                            place.path("lat").asDouble(),
+                            place.path("lon").asDouble()));
+                });
+    }
+
+    private List<RouteAlternativeDTO> getGeoapifyRoute(
+            GeoCoordinates origin,
+            GeoCoordinates destination
+    ) {
+        if (!hasText(geoapifyRoutingKey)) {
+            return List.of();
+        }
+
+        String waypoints = origin.latitude() + "," + origin.longitude()
+                + "|" + destination.latitude() + "," + destination.longitude();
+        URI uri = URI.create(geoapifyRoutingUrl
+                + "?waypoints=" + encode(waypoints)
+                + "&mode=drive"
+                + "&apiKey=" + encode(geoapifyRoutingKey));
+
+        return executeRequest(uri, "Geoapify")
+                .map(body -> {
+                    JsonNode features = body.path("features");
+                    if (!features.isArray() || features.isEmpty()) {
+                        return List.<RouteAlternativeDTO>of();
+                    }
+                    JsonNode properties = features.get(0).path("properties");
+                    double distanceMeters = properties.path("distance").asDouble(0);
+                    double durationSeconds = properties.path("time").asDouble(0);
+                    if (distanceMeters <= 0 || durationSeconds <= 0) {
+                        return List.<RouteAlternativeDTO>of();
+                    }
+
+                    BigDecimal distanceKm = BigDecimal.valueOf(distanceMeters / 1000)
+                            .setScale(2, RoundingMode.HALF_UP);
+                    int minutes = Math.max(1, (int) Math.ceil(durationSeconds / 60));
+                    return List.of(new RouteAlternativeDTO(
+                            distanceKm, minutes, minutes, "Geoapify road route"));
+                })
+                .orElseGet(List::of);
     }
 
     private Optional<GeoCoordinates> toCoordinates(JsonNode root) {

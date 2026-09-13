@@ -23,11 +23,13 @@ public class EtaPredictionController {
     private final EtaPredictionService etaPredictionService;
 
     @PostMapping("/{shipmentId}/predict")
+    @PreAuthorize("hasAnyRole('LOGISTICS_OPERATOR', 'ADMINISTRATOR')")
     public ResponseEntity<EtaPredictionResponse> predict(@PathVariable Long shipmentId) {
         return ResponseEntity.ok(etaPredictionService.predict(shipmentId));
     }
 
     @GetMapping("/{shipmentId}")
+    @PreAuthorize("hasAnyRole('CUSTOMER', 'BUSINESS_CLIENT', 'LOGISTICS_OPERATOR', 'SUPPORT_AGENT', 'ADMINISTRATOR')")
     public ResponseEntity<EtaPredictionResponse> getPrediction(@PathVariable Long shipmentId) {
         return ResponseEntity.ok(etaPredictionService.getPrediction(shipmentId));
     }

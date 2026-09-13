@@ -69,6 +69,14 @@ export default function AnalyticsDashboard({
   const [data, setData] = useState<AnalyticsData>();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [darkTheme, setDarkTheme] = useState(false);
+
+  useEffect(() => {
+    const syncTheme = () => setDarkTheme(document.documentElement.dataset.theme === "dark");
+    syncTheme();
+    window.addEventListener("shiptrack-theme-change", syncTheme);
+    return () => window.removeEventListener("shiptrack-theme-change", syncTheme);
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -142,11 +150,11 @@ export default function AnalyticsDashboard({
       <div className="grid gap-6 lg:grid-cols-2">
         <div className="rounded-xl border border-slate-200 bg-white p-5">
           <h2 className="mb-4 text-lg font-semibold text-slate-900">Shipment statuses</h2>
-          <div className="mx-auto max-w-sm"><Pie data={statusData} /></div>
+          <div className="mx-auto max-w-sm"><Pie data={statusData} options={{ plugins: { legend: { labels: { color: darkTheme ? "#cbd5e1" : "#475569" } } } }} /></div>
         </div>
         <div className="rounded-xl border border-slate-200 bg-white p-5">
           <h2 className="mb-4 text-lg font-semibold text-slate-900">Monthly shipment volume</h2>
-          <Bar data={monthlyData} options={{ responsive: true, plugins: { legend: { display: false } } }} />
+          <Bar data={monthlyData} options={{ responsive: true, plugins: { legend: { display: false } }, scales: { x: { ticks: { color: darkTheme ? "#94a3b8" : "#64748b" }, grid: { color: darkTheme ? "#334155" : "#e2e8f0" } }, y: { ticks: { color: darkTheme ? "#94a3b8" : "#64748b" }, grid: { color: darkTheme ? "#334155" : "#e2e8f0" } } } }} />
         </div>
       </div>
       {role === "admin" && data?.routeAnalytics && <section className="rounded-xl border border-slate-200 bg-white p-5">

@@ -50,7 +50,7 @@ public class AnalyticsController {
     }
 
     @GetMapping("/admin")
-    @PreAuthorize("hasRole('ADMINISTRATOR') or hasRole('SUPPORT_AGENT')")
+    @PreAuthorize("hasRole('ADMINISTRATOR')")
     public ResponseEntity<AdminAnalyticsResponse> getAdminDashboard() {
         return ResponseEntity.ok(analyticsService.getAdminDashboard());
     }

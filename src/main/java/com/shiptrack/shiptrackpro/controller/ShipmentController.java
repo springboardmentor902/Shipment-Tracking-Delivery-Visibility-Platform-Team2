@@ -8,6 +8,7 @@ import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -20,6 +21,7 @@ public class ShipmentController {
     private final ShipmentService shipmentService;
 
     @PostMapping
+    @PreAuthorize("hasAnyRole('CUSTOMER', 'BUSINESS_CLIENT')")
     public ResponseEntity<ShipmentResponse> createShipment(
             @Valid @RequestBody ShipmentRequest request) {
 
@@ -29,6 +31,7 @@ public class ShipmentController {
     }
 
     @GetMapping
+    @PreAuthorize("hasAnyRole('CUSTOMER', 'BUSINESS_CLIENT', 'LOGISTICS_OPERATOR', 'SUPPORT_AGENT', 'ADMINISTRATOR')")
     public ResponseEntity<List<ShipmentResponse>> getAllShipments() {
 
         return ResponseEntity.ok(
@@ -37,6 +40,7 @@ public class ShipmentController {
     }
 
     @GetMapping("/{id}")
+    @PreAuthorize("hasAnyRole('CUSTOMER', 'BUSINESS_CLIENT', 'LOGISTICS_OPERATOR', 'SUPPORT_AGENT', 'ADMINISTRATOR')")
     public ResponseEntity<ShipmentResponse> getShipmentById(
             @PathVariable Long id) {
 
@@ -46,6 +50,7 @@ public class ShipmentController {
     }
 
     @GetMapping("/tracking/{trackingNumber}")
+    @PreAuthorize("hasAnyRole('CUSTOMER', 'BUSINESS_CLIENT', 'LOGISTICS_OPERATOR', 'SUPPORT_AGENT', 'ADMINISTRATOR')")
     public ResponseEntity<ShipmentResponse> getShipmentByTrackingNumber(
             @PathVariable String trackingNumber) {
 
@@ -57,6 +62,7 @@ public class ShipmentController {
     }
 
     @PutMapping("/{id}")
+    @PreAuthorize("hasAnyRole('CUSTOMER', 'BUSINESS_CLIENT', 'LOGISTICS_OPERATOR', 'SUPPORT_AGENT', 'ADMINISTRATOR')")
     public ResponseEntity<ShipmentResponse> updateShipment(
             @PathVariable Long id,
             @Valid @RequestBody ShipmentRequest request) {
@@ -68,6 +74,7 @@ public class ShipmentController {
 
     /** Assigns an operator; operators may claim a shipment only for themselves. */
     @PatchMapping("/{id}/operator")
+    @PreAuthorize("hasAnyRole('LOGISTICS_OPERATOR', 'ADMINISTRATOR')")
     public ResponseEntity<ShipmentResponse> assignOperator(
             @PathVariable Long id,
             @Valid @RequestBody OperatorAssignmentRequest request) {
@@ -75,6 +82,7 @@ public class ShipmentController {
     }
 
     @DeleteMapping("/{id}")
+    @PreAuthorize("hasAnyRole('CUSTOMER', 'BUSINESS_CLIENT', 'LOGISTICS_OPERATOR', 'SUPPORT_AGENT', 'ADMINISTRATOR')")
     public ResponseEntity<Void> deleteShipment(
             @PathVariable Long id) {
 

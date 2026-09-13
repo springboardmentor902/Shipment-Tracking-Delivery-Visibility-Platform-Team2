@@ -25,7 +25,7 @@ public class ReportController {
     private final ReportService reportService;
 
     @GetMapping("/pdf")
-    @PreAuthorize("hasRole('BUSINESS_CLIENT') or hasRole('ADMINISTRATOR') or hasRole('SUPPORT_AGENT')")
+    @PreAuthorize("hasAnyRole('CUSTOMER', 'BUSINESS_CLIENT', 'ADMINISTRATOR')")
     public ResponseEntity<InputStreamResource> exportPdf(
             @RequestParam(required = false)
             @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate startDate,
@@ -38,7 +38,7 @@ public class ReportController {
     }
 
     @GetMapping("/excel")
-    @PreAuthorize("hasRole('BUSINESS_CLIENT') or hasRole('ADMINISTRATOR') or hasRole('SUPPORT_AGENT')")
+    @PreAuthorize("hasAnyRole('CUSTOMER', 'BUSINESS_CLIENT', 'ADMINISTRATOR')")
     public ResponseEntity<InputStreamResource> exportExcel(
             @RequestParam(required = false)
             @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate startDate,

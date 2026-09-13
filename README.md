@@ -1,126 +1,82 @@
-# ShipTrack Pro
+# shiptrackPro_Infosys
 
-ShipTrack Pro is a Spring Boot and Next.js shipment tracking platform for creating shipments, tracking delivery progress, planning routes, predicting ETA, sending notifications, uploading proof of delivery, analyzing operations, and exporting reports.
+ShipTrack Pro is a full-stack shipment tracking application built with Spring Boot, PostgreSQL, Next.js and TypeScript.
 
-## What is included
+## Features
 
-- Multiple packages for one shipment
-- Role-based shipment list: customers see their own shipments, operators see assigned shipments, and administrators see all shipments
-- Route creation, driver assignment, and optional Google Maps distance/time lookup
-- Tracking events and simple ETA/delay-risk prediction
-- Email notification records with duplicate prevention
-- Proof of delivery upload, delivery status update, and support/admin verification
-- Role-based analytics dashboards for customers, business clients, and administrators
-- Filterable PDF and Excel shipment reports
-- Responsive logistics dashboard UI with shipment timelines, KPI cards, filters, notifications, and loading states
+- Registration, login and role-based access
+- Shipment creation with multiple packages
+- Customer, operator and administrator shipment views
+- Route management and driver assignment
+- Tracking history and ETA prediction
+- In-app and email notifications
+- Proof of delivery submission and verification
+- Role-based analytics and PDF/Excel reports
+- Light and dark interface themes
 
-## Before running the backend
+## Project structure
 
-Install Java 21 or newer and PostgreSQL. Create a database named `shiptrack`.
+```text
+frontend/   Next.js frontend
+src/        Spring Boot backend
+pom.xml     Backend dependencies
+```
 
-Set the environment variables in PowerShell. Keep real passwords and API keys out of the source code.
+## Requirements
+
+- Java 21+
+- Node.js 20+
+- PostgreSQL
+
+Create a PostgreSQL database named `shiptrack_pro_infosys`, then provide the required values through environment variables. This keeps the project data separate from older ShipTrack databases. Never commit real passwords or API keys.
+
+### Linux/macOS
+
+```bash
+export DB_PASSWORD="your-postgres-password"
+export JWT_SECRET="use-a-random-secret-with-at-least-32-characters"
+export ADMIN_EMAIL="admin@example.com"
+export ADMIN_PASSWORD="your-admin-password"
+```
+
+### Windows PowerShell
 
 ```powershell
 $env:DB_PASSWORD = "your-postgres-password"
-$env:JWT_SECRET = "a-long-random-secret-at-least-32-characters"
+$env:JWT_SECRET = "use-a-random-secret-with-at-least-32-characters"
 $env:ADMIN_EMAIL = "admin@example.com"
-$env:ADMIN_PASSWORD = "a-strong-admin-password"
+$env:ADMIN_PASSWORD = "your-admin-password"
 ```
 
-`DB_PASSWORD` must match the password for the local PostgreSQL `postgres` user. Do not commit the actual password to this repository.
+`GOOGLE_MAPS_API_KEY` and the `MAIL_*` variables are optional. Routes are still saved if Google Maps is unavailable, and in-app notifications continue working without email configuration.
 
-Google Maps is optional while developing. Without the key, route creation still works; only `distanceKm` and `estimatedTimeMinutes` remain empty.
+## Run the application
 
-```powershell
-$env:GOOGLE_MAPS_API_KEY = "your-demo-google-maps-key"
+Start the backend from the project root:
+
+```bash
+./mvnw spring-boot:run
 ```
 
-For email notifications, add these only when an SMTP account is available:
+On Windows, use `mvnw.cmd spring-boot:run`. The backend runs at `http://localhost:8081`.
 
-```powershell
-$env:MAIL_HOST = "smtp.example.com"
-$env:MAIL_PORT = "587"
-$env:MAIL_USERNAME = "your-email"
-$env:MAIL_PASSWORD = "your-app-password"
-$env:MAIL_FROM = "your-email"
-$env:MAIL_SMTP_AUTH = "true"
-$env:MAIL_SMTP_STARTTLS = "true"
-```
+Open another terminal and start the frontend:
 
-## Run the backend
-
-```powershell
-.\mvnw.cmd spring-boot:run
-```
-
-The API runs on `http://localhost:8081`.
-
-## Run the frontend
-
-Install Node.js 20 or newer, then run:
-
-```powershell
-Set-Location frontend
+```bash
+cd frontend
 npm install
 npm run dev
 ```
 
-The frontend runs on `http://localhost:3000`. Set `NEXT_PUBLIC_API_URL` when the backend is not running on the default URL:
+Open `http://localhost:3000`. Use the admin email and password configured above, or register a customer account from the login screen.
 
-```powershell
-$env:NEXT_PUBLIC_API_URL = "http://localhost:8081"
-```
+## Test before submitting
 
-If port 3000 is already in use, Next.js may start on port 3001. Open the port shown in the terminal output.
-
-Start the backend before using Login or Register. Authentication requests require the backend at `http://localhost:8081` and a valid PostgreSQL connection.
-
-## Main API endpoints
-
-| Feature | Endpoint |
-| --- | --- |
-| Create/list shipments | `POST`, `GET /api/shipments` |
-| Assign an operator | `PATCH /api/shipments/{id}/operator` |
-| Create/get a route | `POST /api/routes`, `GET /api/routes/{shipmentId}` |
-| Change route driver | `PATCH /api/routes/{shipmentId}/driver` |
-| Add/get tracking events | `POST`, `GET /api/tracking/{shipmentId}` |
-| Predict/get ETA | `POST /api/eta/{shipmentId}/predict`, `GET /api/eta/{shipmentId}` |
-| List/read notifications | `GET /api/notifications`, `PATCH /api/notifications/{id}/read` |
-| Submit/get POD | `POST`, `GET /api/pod/{shipmentId}` |
-| Verify POD | `PATCH /api/pod/{shipmentId}/verify` |
-| View pending proof queue | `GET /api/pod/pending` (Support Agent/Admin) |
-| Customer analytics | `GET /api/analytics/customer` or `/api/analytics/customer/{customerId}` |
-| Business client analytics | `GET /api/analytics/business-client` or `/api/analytics/business-client/{clientId}` |
-| Admin analytics | `GET /api/analytics/admin` |
-| Export PDF report | `GET /api/reports/export/pdf` |
-| Export Excel report | `GET /api/reports/export/excel` |
-
-Analytics access is restricted to the matching customer/business-client role or an administrator. Report exports are available to business clients and administrators. Reports accept optional query parameters:
-
-```text
-startDate=2026-01-01&endDate=2026-12-31&status=DELIVERED
-```
-
-Report responses are downloadable attachments named `shipments_report.pdf` and `shipments_report.xlsx`.
-
-All protected requests need this header after login:
-
-```text
-Authorization: Bearer <token>
-```
-
-## Run the tests
-
-```powershell
-.\mvnw.cmd test
-```
-
-The test configuration uses an in-memory H2 database, so it does not need PostgreSQL.
-
-## Frontend validation
-
-```powershell
-Set-Location frontend
+```bash
+./mvnw test
+cd frontend
 npm run lint
 npm run build
 ```
+
+Backend tests use an in-memory H2 database and do not change PostgreSQL data.

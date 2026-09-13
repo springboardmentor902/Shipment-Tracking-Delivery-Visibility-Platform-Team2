@@ -24,8 +24,8 @@ public class Shipment {
     private String trackingNumber;
 
     /** The customer or business client that created the shipment. */
-    @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "created_by")
+    @ManyToOne(fetch = FetchType.LAZY, optional = false)
+    @JoinColumn(name = "created_by_id", nullable = false, updatable = false)
     private User createdBy;
 
     /** The logistics operator currently responsible for the shipment. */
@@ -66,6 +66,9 @@ public class Shipment {
 
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
+
+    @Version
+    private Long version;
 
     @PrePersist
     protected void onCreate() {

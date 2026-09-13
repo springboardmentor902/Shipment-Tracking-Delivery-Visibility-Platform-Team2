@@ -58,6 +58,9 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.POST, "/api/shipments")
                         .hasAnyRole("CUSTOMER", "BUSINESS_CLIENT")
 
+                        .requestMatchers(HttpMethod.POST, "/api/notification")
+                        .hasRole("ADMINISTRATOR")
+
                         .requestMatchers(HttpMethod.PUT, "/api/shipments/**")
                         .authenticated()
                         .requestMatchers(HttpMethod.PATCH, "/api/shipments/**")
@@ -83,7 +86,7 @@ public class SecurityConfig {
 
                         // Analytics and reports
                         .requestMatchers("/api/analytics/**", "/api/reports/**")
-                        .hasAnyRole("CUSTOMER", "BUSINESS_CLIENT", "SUPPORT_AGENT", "ADMINISTRATOR")
+                        .hasAnyRole("CUSTOMER", "BUSINESS_CLIENT", "ADMINISTRATOR")
 
                         // Admin
                         .requestMatchers("/api/admin/**")

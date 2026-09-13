@@ -9,6 +9,7 @@ import jakarta.persistence.Id;
 import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
+import jakarta.persistence.Version;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Getter;
@@ -43,10 +44,14 @@ public class Route {
     @JoinColumn(name = "driver_id")
     private User driver;
 
-    @Column(nullable = false)
+    @ManyToOne(fetch = FetchType.LAZY, optional = false)
+    @JoinColumn(name = "created_by_id", nullable = false, updatable = false)
+    private User createdBy;
+
+    @Column(name = "origin_address", nullable = false, length = 500)
     private String origin;
 
-    @Column(nullable = false)
+    @Column(name = "destination_address", nullable = false, length = 500)
     private String destination;
 
     @Column(columnDefinition = "TEXT")
@@ -75,6 +80,9 @@ public class Route {
 
     @Column(nullable = false)
     private LocalDateTime updatedAt;
+
+    @Version
+    private Long version;
 
     @jakarta.persistence.PrePersist
     protected void onCreate() {

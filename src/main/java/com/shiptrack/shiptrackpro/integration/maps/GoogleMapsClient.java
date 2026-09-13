@@ -6,8 +6,8 @@ import java.util.List;
 import java.util.Optional;
 
 /**
- * Boundary around Google Maps so route persistence stays independent from the
- * external service and the integration can be replaced or mocked in tests.
+ * Boundary around map providers so route persistence stays independent from
+ * the external service and the integration can be mocked in tests.
  */
 public interface GoogleMapsClient {
 

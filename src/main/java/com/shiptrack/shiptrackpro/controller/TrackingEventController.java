@@ -7,6 +7,7 @@ import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -25,6 +26,7 @@ public class TrackingEventController {
 
     /** SecurityConfig restricts this operational update endpoint to route staff. */
     @PostMapping("/tracking/{shipmentId}")
+    @PreAuthorize("hasAnyRole('LOGISTICS_OPERATOR', 'ADMINISTRATOR')")
     public ResponseEntity<TrackingEventResponse> addTrackingEvent(
             @PathVariable Long shipmentId,
             @Valid @RequestBody TrackingEventRequest request
@@ -42,6 +44,7 @@ public class TrackingEventController {
             "/tracking/{shipmentId}",
             "/shipments/{shipmentId}/tracking-events"
     })
+    @PreAuthorize("hasAnyRole('CUSTOMER', 'BUSINESS_CLIENT', 'LOGISTICS_OPERATOR', 'SUPPORT_AGENT', 'ADMINISTRATOR')")
     public ResponseEntity<List<TrackingEventResponse>> getTrackingEvents(
             @PathVariable Long shipmentId
     ) {

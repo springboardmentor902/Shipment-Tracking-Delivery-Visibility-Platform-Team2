@@ -8,6 +8,7 @@ import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -26,6 +27,7 @@ public class RouteController {
     private final RouteService routeService;
 
     @PostMapping
+    @PreAuthorize("hasAnyRole('LOGISTICS_OPERATOR', 'ADMINISTRATOR')")
     public ResponseEntity<RouteResponse> createRoute(
             @Valid @RequestBody RouteRequest request
     ) {
@@ -37,6 +39,7 @@ public class RouteController {
      * Handles both the first driver assignment and later driver changes.
      */
     @PatchMapping("/{shipmentId}/driver")
+    @PreAuthorize("hasAnyRole('LOGISTICS_OPERATOR', 'ADMINISTRATOR')")
     public ResponseEntity<RouteResponse> assignDriver(
             @PathVariable Long shipmentId,
             @Valid @RequestBody DriverAssignmentRequest request
@@ -45,6 +48,7 @@ public class RouteController {
     }
 
     @GetMapping("/{shipmentId}")
+    @PreAuthorize("hasAnyRole('CUSTOMER', 'BUSINESS_CLIENT', 'LOGISTICS_OPERATOR', 'SUPPORT_AGENT', 'ADMINISTRATOR')")
     public ResponseEntity<RouteResponse> getRouteForShipment(
             @PathVariable Long shipmentId
     ) {
@@ -52,6 +56,7 @@ public class RouteController {
     }
 
     @GetMapping("/{shipmentId}/history")
+    @PreAuthorize("hasAnyRole('CUSTOMER', 'BUSINESS_CLIENT', 'LOGISTICS_OPERATOR', 'SUPPORT_AGENT', 'ADMINISTRATOR')")
     public ResponseEntity<List<RouteResponse>> getRouteHistoryForShipment(
             @PathVariable Long shipmentId
     ) {
