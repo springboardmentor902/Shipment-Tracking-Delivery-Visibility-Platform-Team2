@@ -9,6 +9,7 @@ import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
@@ -18,13 +19,13 @@ import java.io.ByteArrayInputStream;
 import java.time.LocalDate;
 
 @RestController
-@RequestMapping("/api/reports/export")
+@RequestMapping("/api/reports")
 @RequiredArgsConstructor
 public class ReportController {
 
     private final ReportService reportService;
 
-    @GetMapping("/pdf")
+    @GetMapping("/export/pdf")
     @PreAuthorize("hasAnyRole('CUSTOMER', 'BUSINESS_CLIENT', 'ADMINISTRATOR')")
     public ResponseEntity<InputStreamResource> exportPdf(
             @RequestParam(required = false)
@@ -37,7 +38,7 @@ public class ReportController {
         return download(report, "shipments_report.pdf", MediaType.APPLICATION_PDF);
     }
 
-    @GetMapping("/excel")
+    @GetMapping("/export/excel")
     @PreAuthorize("hasAnyRole('CUSTOMER', 'BUSINESS_CLIENT', 'ADMINISTRATOR')")
     public ResponseEntity<InputStreamResource> exportExcel(
             @RequestParam(required = false)
@@ -52,6 +53,36 @@ public class ReportController {
                 "shipments_report.xlsx",
                 MediaType.parseMediaType(
                         "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"));
+    }
+
+    @GetMapping("/{reportType}")
+    @PreAuthorize("hasAnyRole('CUSTOMER', 'BUSINESS_CLIENT', 'ADMINISTRATOR')")
+    public ResponseEntity<InputStreamResource> exportReport(
+            @PathVariable String reportType,
+            @RequestParam(defaultValue = "pdf") String format,
+            @RequestParam(required = false)
+            @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate startDate,
+            @RequestParam(required = false)
+            @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate endDate,
+            @RequestParam(required = false) String status
+    ) {
+        String type = reportService.normalizeReportType(reportType);
+        if ("pdf".equalsIgnoreCase(format)) {
+            return download(
+                    reportService.generatePdf(type, startDate, endDate, status),
+                    type + "_report.pdf",
+                    MediaType.APPLICATION_PDF);
+        }
+        if ("excel".equalsIgnoreCase(format) || "xlsx".equalsIgnoreCase(format)) {
+            return download(
+                    reportService.generateExcel(type, startDate, endDate, status),
+                    type + "_report.xlsx",
+                    MediaType.parseMediaType(
+                            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"));
+        }
+        throw new org.springframework.web.server.ResponseStatusException(
+                org.springframework.http.HttpStatus.BAD_REQUEST,
+                "Format must be pdf or excel");
     }
 
     private ResponseEntity<InputStreamResource> download(

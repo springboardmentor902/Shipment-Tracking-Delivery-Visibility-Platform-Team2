@@ -9,6 +9,7 @@ type Props = {
 };
 
 type ReportFormat = "pdf" | "excel";
+type ReportType = "shipments" | "deliveries" | "routes" | "delays";
 
 export default function ReportExporter({
   token,
@@ -17,6 +18,7 @@ export default function ReportExporter({
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
   const [status, setStatus] = useState("");
+  const [reportType, setReportType] = useState<ReportType>("shipments");
   const [exporting, setExporting] = useState<ReportFormat>();
   const [error, setError] = useState("");
 
@@ -25,11 +27,12 @@ export default function ReportExporter({
     setError("");
     try {
       const response = await axios.get(
-        `${apiUrl}/api/reports/export/${format}`,
+        `${apiUrl}/api/reports/${reportType}`,
         {
           responseType: "arraybuffer",
           headers: { Authorization: `Bearer ${token}` },
           params: {
+            format,
             ...(startDate ? { startDate } : {}),
             ...(endDate ? { endDate } : {}),
             ...(status ? { status } : {}),
@@ -40,7 +43,7 @@ export default function ReportExporter({
       const url = URL.createObjectURL(blob);
       const link = document.createElement("a");
       link.href = url;
-      link.download = format === "pdf" ? "shipments_report.pdf" : "shipments_report.xlsx";
+      link.download = `${reportType}_report.${format === "pdf" ? "pdf" : "xlsx"}`;
       document.body.appendChild(link);
       link.click();
       link.remove();
@@ -58,8 +61,17 @@ export default function ReportExporter({
 
   return (
     <section className="rounded-xl border border-slate-200 bg-white p-5">
-      <h2 className="mb-4 text-lg font-semibold text-slate-900">Export shipment report</h2>
-      <div className="grid gap-4 md:grid-cols-3">
+      <h2 className="mb-4 text-lg font-semibold text-slate-900">Reports and export</h2>
+      <div className="grid gap-4 md:grid-cols-2">
+        <label className="text-sm text-slate-600">
+          Report type
+          <select className="mt-1 w-full rounded border border-slate-300 p-2" value={reportType} onChange={(event) => setReportType(event.target.value as ReportType)}>
+            <option value="shipments">Shipment report</option>
+            <option value="deliveries">Delivery report</option>
+            <option value="routes">Route performance report</option>
+            <option value="delays">Delay analysis report</option>
+          </select>
+        </label>
         <label className="text-sm text-slate-600">
           Start date
           <input
@@ -69,6 +81,8 @@ export default function ReportExporter({
             onChange={(event) => setStartDate(event.target.value)}
           />
         </label>
+      </div>
+      <div className="mt-4 grid gap-4 md:grid-cols-3">
         <label className="text-sm text-slate-600">
           End date
           <input

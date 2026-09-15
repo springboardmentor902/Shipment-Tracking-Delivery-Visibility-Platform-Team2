@@ -46,12 +46,19 @@ public class SecurityConfig {
 
                 .authorizeHttpRequests(auth -> auth
 
+                        // JWT is checked in the STOMP CONNECT frame.
+                        .requestMatchers("/api/ws/tracking", "/api/ws/tracking/**")
+                        .permitAll()
+
                         // Public authentication endpoints
                         .requestMatchers(
                                 HttpMethod.POST,
                                 "/api/auth/login",
                                 "/api/auth/register"
                         ).permitAll()
+
+                        .requestMatchers(HttpMethod.GET, "/api/shipments/public/tracking/**")
+                        .permitAll()
 
                         // Shipment creation is restricted by role; the service
                         // records the current user as the owner.
@@ -71,7 +78,7 @@ public class SecurityConfig {
                         // Route changes and tracking updates are operational
                         // actions. Read access is verified at entity level.
                         .requestMatchers(HttpMethod.POST, "/api/routes/**",
-                                "/api/tracking/**", "/api/eta/**")
+                                "/api/route/**", "/api/tracking/**", "/api/eta/**")
                         .hasAnyRole("LOGISTICS_OPERATOR", "ADMINISTRATOR")
                         .requestMatchers(HttpMethod.PUT, "/api/routes/**")
                         .hasAnyRole("LOGISTICS_OPERATOR", "ADMINISTRATOR")

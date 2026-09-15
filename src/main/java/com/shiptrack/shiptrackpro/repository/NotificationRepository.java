@@ -11,10 +11,9 @@ public interface NotificationRepository extends JpaRepository<Notification, Long
 
     List<Notification> findByUser_IdOrderByCreatedAtDesc(Long userId);
 
-    boolean existsByShipment_IdAndTypeAndMessageAndCreatedAtAfter(
+    boolean existsByShipment_IdAndTypeAndCreatedAtAfter(
             Long shipmentId,
             NotificationType type,
-            String message,
             LocalDateTime sentAfter
     );
 }

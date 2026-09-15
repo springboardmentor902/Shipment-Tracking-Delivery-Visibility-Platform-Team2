@@ -1,6 +1,8 @@
 package com.shiptrack.shiptrackpro.service;
 
 import com.shiptrack.shiptrackpro.dto.DriverAssignmentRequest;
+import com.shiptrack.shiptrackpro.dto.DriverLocationRequest;
+import com.shiptrack.shiptrackpro.dto.LocationUpdateResponse;
 import com.shiptrack.shiptrackpro.dto.RouteRequest;
 import com.shiptrack.shiptrackpro.dto.RouteResponse;
 
@@ -18,4 +20,6 @@ public interface RouteService {
     RouteResponse getRouteForShipment(Long shipmentId);
 
     List<RouteResponse> getRouteHistoryForShipment(Long shipmentId);
+
+    LocationUpdateResponse updateLocation(Long routeId, DriverLocationRequest request);
 }

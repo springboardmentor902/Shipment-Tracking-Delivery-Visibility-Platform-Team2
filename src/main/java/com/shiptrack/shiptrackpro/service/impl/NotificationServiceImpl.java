@@ -10,13 +10,13 @@ import com.shiptrack.shiptrackpro.entity.User;
 import com.shiptrack.shiptrackpro.repository.NotificationRepository;
 import com.shiptrack.shiptrackpro.repository.ShipmentRepository;
 import com.shiptrack.shiptrackpro.service.CurrentUserService;
-import com.shiptrack.shiptrackpro.service.NotificationEmailSender;
 import com.shiptrack.shiptrackpro.service.NotificationService;
 import com.shiptrack.shiptrackpro.service.ShipmentAccessService;
 import lombok.RequiredArgsConstructor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -66,7 +66,8 @@ public class NotificationServiceImpl implements NotificationService {
 
     @Override
     @Transactional
-    public NotificationResponse createForCurrentUser(NotificationCreateRequest request) {
+    @CacheEvict(cacheNames = {"customerAnalytics", "businessAnalytics", "adminAnalytics"}, allEntries = true)
+    public NotificationResponse createForShipmentOwner(NotificationCreateRequest request) {
         Shipment shipment = shipmentRepository.findById(request.getShipmentId())
                 .orElseThrow(() -> new ResponseStatusException(
                         HttpStatus.NOT_FOUND,
@@ -74,10 +75,14 @@ public class NotificationServiceImpl implements NotificationService {
                 ));
         shipmentAccessService.requireCanViewShipment(shipment);
 
-        User currentUser = currentUserService.getRequiredCurrentUser();
+        User recipient = shipment.getCreatedBy();
+        if (recipient == null) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT,
+                    "The shipment has no customer to notify");
+        }
         return sendInternal(
                 request.getType(),
-                currentUser,
+                recipient,
                 shipment,
                 request.getTitle(),
                 request.getMessage()
@@ -99,6 +104,7 @@ public class NotificationServiceImpl implements NotificationService {
 
     @Override
     @Transactional
+    @CacheEvict(cacheNames = {"customerAnalytics", "businessAnalytics", "adminAnalytics"}, allEntries = true)
     public NotificationResponse markCurrentUserNotificationAsRead(Long notificationId) {
         User currentUser = currentUserService.getRequiredCurrentUser();
         Notification notification = notificationRepository.findById(notificationId)
@@ -136,8 +142,8 @@ public class NotificationServiceImpl implements NotificationService {
 
         long safeWindow = Math.max(0, duplicatePreventionMinutes);
         LocalDateTime duplicateCutoff = LocalDateTime.now().minusMinutes(safeWindow);
-        if (notificationRepository.existsByShipment_IdAndTypeAndMessageAndCreatedAtAfter(
-                shipment.getId(), type, message, duplicateCutoff)) {
+        if (notificationRepository.existsByShipment_IdAndTypeAndCreatedAtAfter(
+                shipment.getId(), type, duplicateCutoff)) {
             LOGGER.info("Suppressed duplicate {} notification for shipment {}", type, shipment.getId());
             return Optional.empty();
         }

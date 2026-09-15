@@ -35,7 +35,7 @@ public class AnalyticsController {
         return ResponseEntity.ok(analyticsService.getCustomerDashboard(customerId));
     }
 
-    @GetMapping("/business-client")
+    @GetMapping({"/business", "/business-client"})
     @PreAuthorize("hasRole('BUSINESS_CLIENT') or hasRole('ADMINISTRATOR')")
     public ResponseEntity<BusinessClientAnalyticsResponse> getBusinessClientDashboard() {
         return ResponseEntity.ok(analyticsService.getBusinessClientDashboard(

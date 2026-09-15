@@ -15,12 +15,36 @@ import { Bar, Pie } from "react-chartjs-2";
 
 ChartJS.register(ArcElement, BarElement, CategoryScale, Legend, LinearScale, Tooltip);
 
-type DashboardRole = "customer" | "business-client" | "admin";
+type DashboardRole = "customer" | "business" | "admin";
+type ShipmentAnalyticsItem = {
+  id: number;
+  trackingNumber: string;
+  status: string;
+  receiverName?: string;
+  pickupAddress?: string;
+  deliveryAddress?: string;
+};
 type AnalyticsData = {
   totalShipments?: number;
   totalShipmentHistoryCount?: number;
   totalShipmentVolume?: number;
   activeShipments?: number;
+  deliveredShipments?: number;
+  failedDeliveries?: number;
+  onTimeDeliveries?: number;
+  onTimeDeliveryRate?: number;
+  deliverySuccessRate?: number;
+  totalTrackingEvents?: number;
+  atRiskShipments?: number;
+  delayedShipmentCount?: number;
+  activeUsers?: number;
+  totalUsers?: number;
+  systemStatus?: string;
+  generatedAt?: string;
+  availableReports?: string[];
+  userRoleBreakdown?: Record<string, number>;
+  shipmentHistory?: ShipmentAnalyticsItem[];
+  atRiskShipmentList?: ShipmentAnalyticsItem[];
   pendingVerifications?: number;
   pendingPodVerifications?: number;
   statusBreakdown?: Record<string, number>;
@@ -58,8 +82,7 @@ type Props = {
   apiUrl?: string;
 };
 
-const chartStatusLabels = ["IN_TRANSIT", "DELIVERED", "DELAYED", "FAILED"];
-const chartStatusColors = ["#2563eb", "#16a34a", "#dc2626", "#6b7280"];
+const chartStatusColors = ["#2563eb", "#16a34a", "#d97706", "#dc2626", "#7c3aed", "#64748b"];
 
 export default function AnalyticsDashboard({
   role,
@@ -111,15 +134,16 @@ export default function AnalyticsDashboard({
   const pendingVerifications = data?.pendingVerifications
     ?? data?.pendingPodVerifications
     ?? 0;
-  const statusData = useMemo(() => ({
-    labels: chartStatusLabels.map((status) => status.replace("_", " ")),
+  const statusData = useMemo(() => {
+    const statuses = Object.keys(data?.statusBreakdown ?? {});
+    return ({
+    labels: statuses.map((status) => status.replaceAll("_", " ")),
     datasets: [{
-      data: chartStatusLabels.map((status) => status === "FAILED"
-        ? (data?.statusBreakdown?.FAILED ?? 0) + (data?.statusBreakdown?.FAILED_DELIVERY ?? 0)
-        : data?.statusBreakdown?.[status] ?? 0),
-      backgroundColor: chartStatusColors,
+      data: statuses.map((status) => data?.statusBreakdown?.[status] ?? 0),
+      backgroundColor: statuses.map((_, index) => chartStatusColors[index % chartStatusColors.length]),
     }],
-  }), [data]);
+  });
+  }, [data]);
   const monthlyData = useMemo(() => {
     const monthly = data?.monthlyShipmentVolume ?? {};
     const labels = Object.keys(monthly);
@@ -147,6 +171,15 @@ export default function AnalyticsDashboard({
         <MetricCard label="Active shipments" value={data?.activeShipments ?? 0} />
         <MetricCard label="Pending verifications" value={pendingVerifications} />
       </div>
+      <div className="grid gap-4 sm:grid-cols-3">
+        {role === "customer" && <MetricCard label="Tracking updates" value={data?.totalTrackingEvents ?? 0} />}
+        {role === "business" && <MetricCard label="Delivery success" value={data?.deliverySuccessRate ?? 0} suffix="%" />}
+        {role === "business" && <MetricCard label="At risk" value={data?.atRiskShipments ?? 0} />}
+        {role === "business" && <MetricCard label="Failed deliveries" value={data?.failedDeliveries ?? 0} />}
+        {role === "admin" && <MetricCard label="Active users" value={data?.activeUsers ?? 0} />}
+        {role === "admin" && <MetricCard label="On-time delivery" value={data?.onTimeDeliveryRate ?? 0} suffix="%" />}
+        {role === "admin" && <MetricCard label="Tracking events" value={data?.totalTrackingEvents ?? 0} />}
+      </div>
       <div className="grid gap-6 lg:grid-cols-2">
         <div className="rounded-xl border border-slate-200 bg-white p-5">
           <h2 className="mb-4 text-lg font-semibold text-slate-900">Shipment statuses</h2>
@@ -170,6 +203,13 @@ export default function AnalyticsDashboard({
           <RoutePerformanceCard title="Worst performing route" route={data.routeAnalytics.worstPerformingRoute} emptyText="Create routes to see the route needing the most attention." />
         </div>
       </section>}
+      {role === "business" && <ShipmentList title="At-risk shipments" items={data?.atRiskShipmentList ?? []} emptyText="No business shipments are currently at risk." />}
+      {(role === "customer" || role === "business") && <ShipmentList title="Shipment history" items={data?.shipmentHistory ?? []} emptyText="No shipment history yet." />}
+      {role === "admin" && <section className="rounded-xl border border-slate-200 bg-white p-5">
+        <h2 className="text-lg font-semibold text-slate-900">System monitoring</h2>
+        <p className="mt-2 text-sm text-slate-600">Status: <strong>{data?.systemStatus ?? "OPERATIONAL"}</strong> · Users: <strong>{data?.totalUsers ?? 0}</strong></p>
+        <p className="mt-2 text-sm text-slate-600">Reports available: {(data?.availableReports ?? []).join(", ") || "Shipments, deliveries, routes, delays"}</p>
+      </section>}
       {data?.recentNotifications && data.recentNotifications.length > 0 && (
         <div className="rounded-xl border border-slate-200 bg-white p-5">
           <h2 className="mb-3 text-lg font-semibold text-slate-900">Recent notifications</h2>
@@ -185,6 +225,10 @@ export default function AnalyticsDashboard({
       )}
     </section>
   );
+}
+
+function ShipmentList({ title, items, emptyText }: { title: string; items: ShipmentAnalyticsItem[]; emptyText: string }) {
+  return <section className="rounded-xl border border-slate-200 bg-white p-5"><h2 className="mb-3 text-lg font-semibold text-slate-900">{title}</h2>{items.length ? <div className="space-y-2">{items.slice(0, 8).map((shipment) => <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 py-2" key={shipment.id}><div><strong className="text-sm text-slate-800">{shipment.trackingNumber}</strong><p className="text-xs text-slate-500">{shipment.pickupAddress} → {shipment.deliveryAddress}</p></div><span className="rounded-full bg-slate-100 px-2 py-1 text-xs font-semibold text-slate-700">{shipment.status.replaceAll("_", " ")}</span></div>)}</div> : <p className="text-sm text-slate-500">{emptyText}</p>}</section>;
 }
 
 function MetricCard({ label, value, suffix = "" }: { label: string; value: number; suffix?: string }) {

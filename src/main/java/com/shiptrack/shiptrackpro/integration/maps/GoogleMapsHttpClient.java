@@ -38,6 +38,7 @@ public class GoogleMapsHttpClient implements GoogleMapsClient {
     private final String directionsUrl;
     private final String geoapifyGeocodingKey;
     private final String geoapifyRoutingKey;
+    private final String geoapifyCountryCode;
     private final String geoapifyGeocodingUrl;
     private final String geoapifyRoutingUrl;
 
@@ -49,6 +50,7 @@ public class GoogleMapsHttpClient implements GoogleMapsClient {
             String directionsUrl,
             @Value("${geoapify.geocoding-api-key:}") String geoapifyGeocodingKey,
             @Value("${geoapify.routing-api-key:}") String geoapifyRoutingKey,
+            @Value("${geoapify.country-code:in}") String geoapifyCountryCode,
             @Value("${geoapify.geocoding-url:https://api.geoapify.com/v1/geocode/search}")
             String geoapifyGeocodingUrl,
             @Value("${geoapify.routing-url:https://api.geoapify.com/v1/routing}")
@@ -59,6 +61,7 @@ public class GoogleMapsHttpClient implements GoogleMapsClient {
         this.directionsUrl = directionsUrl;
         this.geoapifyGeocodingKey = geoapifyGeocodingKey;
         this.geoapifyRoutingKey = geoapifyRoutingKey;
+        this.geoapifyCountryCode = geoapifyCountryCode;
         this.geoapifyGeocodingUrl = geoapifyGeocodingUrl;
         this.geoapifyRoutingUrl = geoapifyRoutingUrl;
         this.httpClient = HttpClient.newBuilder()
@@ -189,7 +192,9 @@ public class GoogleMapsHttpClient implements GoogleMapsClient {
 
         URI uri = URI.create(geoapifyGeocodingUrl
                 + "?text=" + encode(address)
-                + "&filter=countrycode:in"
+                + (hasText(geoapifyCountryCode)
+                ? "&filter=countrycode:" + encode(geoapifyCountryCode.toLowerCase())
+                : "")
                 + "&format=json"
                 + "&limit=1"
                 + "&apiKey=" + encode(geoapifyGeocodingKey));

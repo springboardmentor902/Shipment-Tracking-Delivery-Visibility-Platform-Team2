@@ -1,7 +1,7 @@
 "use client";
 
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
-import type { Map as LeafletMap } from "leaflet";
+import type { CircleMarker as LeafletCircleMarker, Map as LeafletMap } from "leaflet";
 import Layout from "../src/components/Layout";
 import AnalyticsDashboard from "../src/components/AnalyticsDashboard";
 import AuthModal from "../src/components/AuthModal";
@@ -15,6 +15,9 @@ import SearchFilterBar from "../src/components/SearchFilterBar";
 import ShipmentManagement from "../src/components/ShipmentManagement";
 import ShipmentTimeline from "../src/components/ShipmentTimeline";
 import SummaryCard from "../src/components/SummaryCard";
+import SignaturePad, { type SignaturePadHandle } from "../src/components/SignaturePad";
+import ProtectedImage from "../src/components/ProtectedImage";
+import { useShipmentLocation, type LiveLocation } from "../src/hooks/useShipmentLocation";
 import type { DashboardTab } from "../src/types/dashboard";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8081";
@@ -23,6 +26,7 @@ type PackageItem = { description: string; quantity: number; fragile: boolean };
 type Shipment = { id: number; trackingNumber: string; status: string; priority?: string; pickupAddress: string; deliveryAddress: string; pickupLatitude?: number; pickupLongitude?: number; deliveryLatitude?: number; deliveryLongitude?: number; packages: PackageItem[]; createdAt?: string; estimatedDeliveryDate?: string };
 type Eta = { predictedDeliveryTime: string; delayRiskScore: number; confidenceScore: number; factors: string; estimatedRemainingMinutes?: number; manuallyAdjusted?: boolean; overrideReason?: string };
 type TrackingEvent = { id: number; status: string; location?: string; eventTimestamp: string };
+type PublicTracking = { trackingNumber: string; status: string; estimatedDeliveryDate?: string; actualDeliveryDate?: string; events: TrackingEvent[] };
 type Notification = { id: number; shipmentId?: number; title: string; message: string; readAt?: string };
 type OverviewStats = {
   totalShipments?: number;
@@ -37,7 +41,7 @@ type OverviewStats = {
 type DrilldownCategory = "active" | "delivered" | "attention" | "alerts";
 type ShipmentWithRisk = Shipment & { delayRiskScore?: number };
 type LoginResult = { token: string; user: { fullName: string; role: string } };
-type Route = { id: number; shipmentId: number; origin: string; destination: string; distanceKm?: number; estimatedTimeMinutes?: number; trafficCondition?: string; isCurrent: boolean; createdAt?: string; routeSummary?: string; selectionReason?: string };
+type Route = { id: number; shipmentId: number; origin: string; destination: string; originLatitude?: number; originLongitude?: number; destinationLatitude?: number; destinationLongitude?: number; distanceKm?: number; estimatedTimeMinutes?: number; trafficCondition?: string; isCurrent: boolean; createdAt?: string; routeSummary?: string; selectionReason?: string; lastKnownLatitude?: number; lastKnownLongitude?: number; lastLocationUpdatedAt?: string };
 type Pod = {
   shipmentId: number;
   deliveredToName: string;
@@ -48,10 +52,30 @@ type Pod = {
   deliveredAt?: string;
 };
 
-function DeliveryMap({ shipment, onRouteReady }: { shipment?: Shipment; onRouteReady: (estimate?: { minutes: number; expectedArrival: string }) => void }) {
+const STATUS_TRANSITIONS: Record<string, string[]> = {
+  CREATED: ["PICKED_UP", "CANCELLED"],
+  PICKED_UP: ["IN_TRANSIT", "CANCELLED"],
+  IN_TRANSIT: ["OUT_FOR_DELIVERY", "FAILED_DELIVERY", "CANCELLED"],
+  OUT_FOR_DELIVERY: ["DELIVERED", "FAILED_DELIVERY", "CANCELLED"],
+  FAILED_DELIVERY: ["OUT_FOR_DELIVERY", "CANCELLED"],
+  DELIVERED: [],
+  CANCELLED: [],
+};
+
+function statusLabel(status: string) {
+  return status.replaceAll("_", " ").toLowerCase().replace(/\b\w/g, (letter) => letter.toUpperCase());
+}
+
+function DeliveryMap({ shipment, route, driverLocation, connected, onRouteReady }: { shipment?: Shipment; route?: Route; driverLocation?: LiveLocation; connected: boolean; onRouteReady: (estimate?: { minutes: number; expectedArrival: string }) => void }) {
   const mapElement = useRef<HTMLDivElement>(null);
   const mapInstance = useRef<LeafletMap | null>(null);
+  const driverMarker = useRef<LeafletCircleMarker | null>(null);
+  const latestLocation = useRef(driverLocation);
   const [mapMessage, setMapMessage] = useState("Load a shipment to see its OpenStreetMap route.");
+
+  useEffect(() => {
+    latestLocation.current = driverLocation;
+  }, [driverLocation]);
 
   useEffect(() => {
     if (!shipment || !mapElement.current) return;
@@ -93,8 +117,8 @@ function DeliveryMap({ shipment, onRouteReady }: { shipment?: Shipment; onRouteR
         if (!element) return;
         setMapMessage("Finding pickup and delivery locations...");
         const { default: L } = await import("leaflet");
-        const savedOrigin = savedPoint(shipment!.pickupLatitude, shipment!.pickupLongitude);
-        const savedDestination = savedPoint(shipment!.deliveryLatitude, shipment!.deliveryLongitude);
+        const savedOrigin = savedPoint(route?.originLatitude ?? shipment!.pickupLatitude, route?.originLongitude ?? shipment!.pickupLongitude);
+        const savedDestination = savedPoint(route?.destinationLatitude ?? shipment!.deliveryLatitude, route?.destinationLongitude ?? shipment!.deliveryLongitude);
         const [origin, destination] = await Promise.all([
           savedOrigin ?? findAddress(shipment!.pickupAddress),
           savedDestination ?? findAddress(shipment!.deliveryAddress),
@@ -109,18 +133,33 @@ function DeliveryMap({ shipment, onRouteReady }: { shipment?: Shipment; onRouteR
         }).addTo(map);
         L.circleMarker(origin, { radius: 8, color: "#ffffff", weight: 3, fillColor: "#2563eb", fillOpacity: 1 }).addTo(map).bindPopup("Pickup");
         L.circleMarker(destination, { radius: 8, color: "#ffffff", weight: 3, fillColor: "#16a34a", fillOpacity: 1 }).addTo(map).bindPopup("Delivery");
+        const initialDriverPoint = savedPoint(
+          latestLocation.current?.latitude,
+          latestLocation.current?.longitude,
+        );
+        if (initialDriverPoint) {
+          driverMarker.current = L.circleMarker(
+            initialDriverPoint,
+            { radius: 9, color: "#ffffff", weight: 3, fillColor: "#f59e0b", fillOpacity: 1 },
+          ).addTo(map).bindPopup("Driver");
+        }
 
         try {
           const routeData = await loadRoadRoute(origin, destination);
+          if (cancelled || mapInstance.current !== map) return;
           const coordinates = routeData.routes?.[0]?.geometry?.coordinates as [number, number][] | undefined;
           if (!coordinates?.length) throw new Error("No road route was returned.");
-          const line = coordinates.map(([longitude, latitude]) => [latitude, longitude] as [number, number]);
+          const line = coordinates
+            .filter(([longitude, latitude]) => Number.isFinite(latitude) && Number.isFinite(longitude))
+            .map(([longitude, latitude]) => [latitude, longitude] as [number, number]);
+          if (line.length < 2) throw new Error("No valid road route was returned.");
           const routeLine = L.polyline(line, { color: "#2563eb", weight: 5 }).addTo(map);
           map.fitBounds(routeLine.getBounds(), { padding: [25, 25] });
           const minutes = Math.round(routeData.routes[0].duration / 60);
           onRouteReady({ minutes, expectedArrival: new Date(Date.now() + minutes * 60000).toISOString() });
           setMapMessage("Road route loaded successfully.");
         } catch {
+          if (cancelled || mapInstance.current !== map) return;
           const fallbackLine = L.polyline([origin, destination], { color: "#64748b", weight: 3, dashArray: "8 8" }).addTo(map);
           map.fitBounds(fallbackLine.getBounds(), { padding: [25, 25] });
           setMapMessage("Locations loaded. Road directions are temporarily unavailable.");
@@ -132,10 +171,25 @@ function DeliveryMap({ shipment, onRouteReady }: { shipment?: Shipment; onRouteR
     }
 
     showMap();
-    return () => { cancelled = true; mapInstance.current?.remove(); mapInstance.current = null; };
-  }, [shipment, onRouteReady]);
+    return () => { cancelled = true; driverMarker.current = null; mapInstance.current?.remove(); mapInstance.current = null; };
+  }, [shipment, route, onRouteReady]);
 
-  return <section className="card map-card"><h2>Live route map</h2><div className="map" ref={mapElement} /><small>{mapMessage}</small></section>;
+  useEffect(() => {
+    if (!driverLocation || !mapInstance.current) return;
+    let cancelled = false;
+    void import("leaflet").then(({ default: L }) => {
+      const map = mapInstance.current;
+      const point: [number, number] = [driverLocation.latitude, driverLocation.longitude];
+      if (cancelled || !map || !Number.isFinite(point[0]) || !Number.isFinite(point[1])) return;
+      driverMarker.current?.remove();
+      driverMarker.current = L.circleMarker(point, {
+        radius: 9, color: "#ffffff", weight: 3, fillColor: "#f59e0b", fillOpacity: 1,
+      }).addTo(map).bindPopup("Driver");
+    });
+    return () => { cancelled = true; };
+  }, [driverLocation]);
+
+  return <section className="card map-card"><div className="section-heading"><h2>Live route map</h2>{shipment && <span className={`live-status ${connected ? "connected" : ""}`}>{connected ? "Live connected" : "Connecting"}</span>}</div><div className="map" ref={mapElement} /><small>{mapMessage}{driverLocation?.recordedAt && ` Driver updated ${new Date(driverLocation.recordedAt).toLocaleTimeString()}.`}</small></section>;
 }
 
 class ApiError extends Error {
@@ -263,7 +317,7 @@ export default function Home() {
   const [route, setRoute] = useState<Route>();
   const [routeHistory, setRouteHistory] = useState<Route[]>([]);
   const [trafficCondition, setTrafficCondition] = useState("NORMAL");
-  const [trackingStatus, setTrackingStatus] = useState("IN_TRANSIT");
+  const [trackingStatus, setTrackingStatus] = useState("PICKED_UP");
   const [trackingLocation, setTrackingLocation] = useState("");
   const [mapEstimate, setMapEstimate] = useState<{ minutes: number; expectedArrival: string }>();
   const [searchStatus, setSearchStatus] = useState("");
@@ -271,12 +325,33 @@ export default function Home() {
   const [loadingShipment, setLoadingShipment] = useState(false);
   const [creatingShipment, setCreatingShipment] = useState(false);
   const creatingShipmentRef = useRef(false);
+  const signatureRef = useRef<SignaturePadHandle>(null);
   const [activeTab, setActiveTab] = useState<DashboardTab>("overview");
   const [showAuth, setShowAuth] = useState(false);
   const [authMode, setAuthMode] = useState<"login" | "register">("login");
   const [authFeedback, setAuthFeedback] = useState<{ text: string; tone: "success" | "error" }>();
   const [toast, setToast] = useState<{ text: string; tone: "success" | "error" | "info" }>();
   const unreadCount = useMemo(() => notifications.filter((item) => !item.readAt).length, [notifications]);
+  const { location: socketLocation, connected: liveConnected } = useShipmentLocation(
+    API_URL, token, shipment?.id,
+  );
+  const savedDriverLatitude = route?.lastKnownLatitude;
+  const savedDriverLongitude = route?.lastKnownLongitude;
+  const driverLocation: LiveLocation | undefined = socketLocation ?? (
+    route
+      && typeof savedDriverLatitude === "number"
+      && typeof savedDriverLongitude === "number"
+      && Number.isFinite(savedDriverLatitude)
+      && Number.isFinite(savedDriverLongitude)
+      ? {
+          routeId: route.id,
+          shipmentId: route.shipmentId,
+          latitude: savedDriverLatitude,
+          longitude: savedDriverLongitude,
+          recordedAt: route.lastLocationUpdatedAt ?? new Date().toISOString(),
+        }
+      : undefined
+  );
 
   function showToast(text: string, tone: "success" | "error" | "info" = "info") {
     setMessage(text);
@@ -448,6 +523,19 @@ export default function Home() {
     setLoadingShipment(true);
     if (!quiet) showToast("Loading shipment details...", "info");
     const id = lookupValue.trim();
+    if (!token) {
+      try {
+        const tracking = await request<PublicTracking>(`/api/shipments/public/tracking/${encodeURIComponent(id)}`, "");
+        setEvents(tracking.events ?? []);
+        const expected = tracking.actualDeliveryDate ?? tracking.estimatedDeliveryDate;
+        showToast(`${tracking.trackingNumber}: ${statusLabel(tracking.status)}${expected ? ` · ${new Date(expected).toLocaleString()}` : ""}`, "success");
+      } catch (error) {
+        showToast(errorMessage(error, "Could not find this tracking number."), "error");
+      } finally {
+        setLoadingShipment(false);
+      }
+      return;
+    }
     const shipmentPath = /^\d+$/.test(id) ? `/api/shipments/${id}` : `/api/shipments/tracking/${encodeURIComponent(id)}`;
     let loadedShipment: Shipment;
     try {
@@ -467,6 +555,7 @@ export default function Home() {
       request<Route[]>(`/api/routes/${loadedShipment.id}/history`, token),
     ]);
     setShipment(loadedShipment);
+    setTrackingStatus(STATUS_TRANSITIONS[loadedShipment.status]?.[0] ?? "");
     setShipmentId(String(loadedShipment.id));
     setEta(etaResult.status === "fulfilled" ? etaResult.value : undefined);
     if (etaResult.status === "fulfilled") {
@@ -521,8 +610,14 @@ export default function Home() {
   async function submitPod(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!shipmentId || !podFile) return showToast("Choose a shipment and a delivery photo first.", "error");
-    const data = new FormData(); data.append("photo", podFile); data.append("deliveredToName", recipient); data.append("deliveryNotes", deliveryNotes);
     try {
+      const signature = await signatureRef.current?.toFile();
+      if (!signature) throw new Error("Recipient signature is required.");
+      const data = new FormData();
+      data.append("signature", signature);
+      data.append("photo", podFile);
+      data.append("deliveredToName", recipient);
+      data.append("deliveryNotes", deliveryNotes);
       setPod(await request<Pod>(`/api/pod/${shipmentId}`, token, { method: "POST", body: data }));
       void loadOverviewStats();
       showToast("Proof submitted. Shipment status is now delivered.", "success");
@@ -603,9 +698,10 @@ export default function Home() {
   async function addTrackingEvent(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!shipmentId) return showToast("Load a shipment before adding a tracking update.", "error");
+    if (!trackingStatus) return showToast("This shipment has reached its final status.", "error");
     try {
-      await request(`/api/tracking/${shipmentId}`, token, {
-        method: "POST",
+      await request(`/api/shipments/${shipmentId}/status`, token, {
+        method: "PATCH",
         body: JSON.stringify({ status: trackingStatus, location: trackingLocation }),
       });
       void loadOverviewStats();
@@ -645,6 +741,8 @@ export default function Home() {
     onTabChange={changeTab}
     onOpenAuth={() => setShowAuth(true)}
     onLogout={logout}
+    unreadCount={unreadCount}
+    onOpenNotifications={() => changeTab("notifications")}
   >
     <section id="overview" className="hero-section">
       <div><p className="eyebrow">{role === "ADMINISTRATOR" ? "ADMIN OPERATIONS CENTER" : "SHIPMENT CONTROL CENTER"}</p><TimeGreeting name={currentUser?.fullName?.split(" ")[0] ?? "there"} /><p className="subtitle">{role === "ADMINISTRATOR" ? "Review all shipments, publish status updates, and manage delivery operations." : "Monitor deliveries, manage exceptions, and keep every shipment moving."}</p></div>
@@ -679,26 +777,26 @@ export default function Home() {
         <div className={`eta ${riskStyle(eta?.delayRiskScore)}`}><h3>Predicted arrival</h3>{eta ? <><p className="eta-duration">Package should arrive in <strong>{remainingTimeLabel(eta.estimatedRemainingMinutes)}</strong>.</p><p>Expected arrival: <strong>{new Date(eta.predictedDeliveryTime).toLocaleString()}</strong>{eta.manuallyAdjusted && <span className="chip">ADMIN UPDATED</span>}</p><p>Delay risk: <strong>{eta.delayRiskScore}/10</strong> · Confidence: <strong>{eta.confidenceScore}%</strong></p><small>Prediction basis: {eta.factors}</small></> : mapEstimate ? <><p>Approximate expected arrival: <strong>{new Date(mapEstimate.expectedArrival).toLocaleString()}</strong></p><small>Based on the current OpenStreetMap route time of about {mapEstimate.minutes} minutes.</small></> : <p>Load a shipment to see its predicted arrival time.</p>}</div></section>
     </section></ShipmentManagement>}
 
-    {activeTab === "tracking" && <><DeliveryMap shipment={shipment} onRouteReady={setMapEstimate} />
+    {activeTab === "tracking" && <><DeliveryMap shipment={shipment} route={route} driverLocation={driverLocation} connected={liveConnected} onRouteReady={setMapEstimate} />
 
     <RouteHistory routes={routeHistory} />
 
     <section className={`grid ${role === "CUSTOMER" ? "single-column" : ""}`}><section className="card"><div className="section-heading"><div><p className="eyebrow">TRACKING</p><h2>Delivery timeline</h2></div><span className="muted-label">{events.length} updates</span></div>{!events.length && <p className="empty-state">Load a shipment to see its delivery milestones.</p>}<ShipmentTimeline events={events} currentStatus={shipment?.status} /></section>
-      {role !== "CUSTOMER" && <section className="card pod"><h2>Proof of delivery</h2>{pod ? <><p>Received by: <strong>{pod.deliveredToName}</strong></p><p>Verification: <span className="chip">{pod.verificationStatus}</span></p>{pod.deliveryNotes && <p>Notes: {pod.deliveryNotes}</p>}<div className="proof-images">{pod.signatureUrl && <img src={`${API_URL}${pod.signatureUrl}`} alt="Delivery signature" />}{pod.photoUrl && <img src={`${API_URL}${pod.photoUrl}`} alt="Delivery proof" />}</div></> : role === "LOGISTICS_OPERATOR" ? <form className="form" onSubmit={submitPod}><p>Select an assigned shipment, then upload its delivery proof.</p><input required value={recipient} onChange={(event) => setRecipient(event.target.value)} placeholder="Recipient name" /><input required type="file" accept="image/*" onChange={(event) => setPodFile(event.target.files?.[0])} /><textarea value={deliveryNotes} onChange={(event) => setDeliveryNotes(event.target.value)} placeholder="Delivery notes (optional)" /><button type="submit">Complete delivery</button></form> : <p className="empty-state">Proof has not been submitted yet.</p>}</section>}</section>
+      {role !== "CUSTOMER" && <section className="card pod"><h2>Proof of delivery</h2>{pod ? <><p>Received by: <strong>{pod.deliveredToName}</strong></p><p>Verification: <span className="chip">{pod.verificationStatus}</span></p>{pod.deliveryNotes && <p>Notes: {pod.deliveryNotes}</p>}<div className="proof-images">{pod.signatureUrl && <ProtectedImage src={`${API_URL}${pod.signatureUrl}`} token={token} alt="Delivery signature" />}{pod.photoUrl && <ProtectedImage src={`${API_URL}${pod.photoUrl}`} token={token} alt="Delivery proof" />}</div></> : role === "LOGISTICS_OPERATOR" ? <form className="form" onSubmit={submitPod}><p>Select an assigned shipment, capture the recipient signature, and upload a delivery photo.</p><input required value={recipient} onChange={(event) => setRecipient(event.target.value)} placeholder="Recipient name" /><label className="field-label">Recipient signature</label><SignaturePad ref={signatureRef} /><label className="field-label">Delivery photo</label><input required type="file" accept="image/*" onChange={(event) => setPodFile(event.target.files?.[0])} /><textarea value={deliveryNotes} onChange={(event) => setDeliveryNotes(event.target.value)} placeholder="Delivery notes (optional)" /><button type="submit">Complete delivery</button></form> : <p className="empty-state">Proof has not been submitted yet.</p>}</section>}</section>
       </>}
 
     {activeTab === "management" && (role === "LOGISTICS_OPERATOR" || role === "ADMINISTRATOR") && <ShipmentManagement>{role === "ADMINISTRATOR" && <section className="admin-control"><div className="section-heading"><div><p className="eyebrow">ADMIN CONTROL CENTER</p><h2>All shipments</h2><p>Choose any shipment to view its details, route, and timeline before publishing a new status.</p></div><button type="button" className="soft" onClick={() => void loadAdminShipments()}>{loadingAdminShipments ? "Loading..." : "Refresh shipment lists"}</button></div>{loadingAdminShipments ? <LoadingSkeleton /> : <div className="grid admin-shipment-lists"><section className="card"><h3>Current shipments</h3><p className="muted-label">Created, picked up, in transit, or out for delivery</p><div className="queue">{adminShipments.filter((item) => !["DELIVERED", "FAILED_DELIVERY", "CANCELLED"].includes(item.status)).map((item) => <button type="button" className={`queue-item ${shipment?.id === item.id ? "selected" : ""}`} key={item.id} onClick={() => void selectAdminShipment(item)}><strong>{item.trackingNumber}</strong><span>{item.pickupAddress} → {item.deliveryAddress}</span><small>Status: {item.status.replaceAll("_", " ")}</small></button>)}{!adminShipments.some((item) => !["DELIVERED", "FAILED_DELIVERY", "CANCELLED"].includes(item.status)) && <p className="empty-state">No current shipments.</p>}</div></section><section className="card"><h3>Shipment history</h3><p className="muted-label">Delivered, failed, or cancelled shipments</p><div className="queue">{adminShipments.filter((item) => ["DELIVERED", "FAILED_DELIVERY", "CANCELLED"].includes(item.status)).map((item) => <button type="button" className={`queue-item ${shipment?.id === item.id ? "selected" : ""}`} key={item.id} onClick={() => void selectAdminShipment(item)}><strong>{item.trackingNumber}</strong><span>{item.pickupAddress} → {item.deliveryAddress}</span><small>Status: {item.status.replaceAll("_", " ")}</small></button>)}{!adminShipments.some((item) => ["DELIVERED", "FAILED_DELIVERY", "CANCELLED"].includes(item.status)) && <p className="empty-state">No shipment history yet.</p>}</div></section></div>}</section>}
       <section id="operations" className="grid"><form className="card form" onSubmit={createRoute}><h2>Admin/Operator: create or replace route</h2><p>Create a route after loading a shipment. Creating another route keeps the previous one in history and marks this one as current.</p><select value={trafficCondition} onChange={(event) => setTrafficCondition(event.target.value)}><option value="NORMAL">Normal traffic</option><option value="HEAVY">Heavy traffic</option><option value="LIGHT">Light traffic</option></select><button type="submit">Create route</button>{route && <p>Distance: <strong>{route.distanceKm ?? "Not available"}</strong> km<br />Estimated time: <strong>{route.estimatedTimeMinutes ?? "Not available"}</strong> minutes<br />{route.selectionReason && <small>{route.selectionReason}</small>}</p>}</form>
-      <form className="card form" onSubmit={addTrackingEvent}><h2>Admin/Operator: update shipment status</h2>{shipment ? <p>Selected shipment: <strong>{shipment.trackingNumber}</strong></p> : <p>Select a shipment from the Admin list, or load one above.</p>}<select value={trackingStatus} onChange={(event) => setTrackingStatus(event.target.value)}><option value="PICKED_UP">Picked up</option><option value="IN_TRANSIT">In transit</option><option value="OUT_FOR_DELIVERY">Out for delivery</option><option value="DELIVERED">Delivered</option><option value="FAILED_DELIVERY">Delivery failed</option><option value="CANCELLED">Cancelled</option></select><input value={trackingLocation} onChange={(event) => setTrackingLocation(event.target.value)} placeholder="Current location, for example: Meerut" /><button type="submit">Publish status update</button><small>The customer receives an in-app notification and an email, and their delivery timeline refreshes automatically.</small></form>
+      <form className="card form" onSubmit={addTrackingEvent}><h2>Update shipment status</h2>{shipment ? <p>Selected shipment: <strong>{shipment.trackingNumber}</strong> · Current status: {statusLabel(shipment.status)}</p> : <p>Select a shipment from the Admin list, or load one above.</p>}<select value={trackingStatus} onChange={(event) => setTrackingStatus(event.target.value)} disabled={!shipment || !(STATUS_TRANSITIONS[shipment.status]?.length)}>{shipment && STATUS_TRANSITIONS[shipment.status]?.map((status) => <option value={status} key={status}>{statusLabel(status)}</option>)}{shipment && !STATUS_TRANSITIONS[shipment.status]?.length && <option value="">No further status change</option>}</select><input value={trackingLocation} onChange={(event) => setTrackingLocation(event.target.value)} placeholder="Current location, for example: Meerut" /><button type="submit" disabled={!shipment || !trackingStatus}>Publish status update</button><small>The customer receives an in-app notification and an email, and their delivery timeline refreshes automatically.</small></form>
       {role === "ADMINISTRATOR" && <form className="card form" onSubmit={overrideEta}><h2>Admin: adjust predicted arrival</h2><p>Use this when an operator reports a revised delivery time. The manual prediction is kept until an Admin changes it again.</p><input required type="datetime-local" value={etaOverrideTime} onChange={(event) => setEtaOverrideTime(event.target.value)} /><textarea value={etaOverrideReason} onChange={(event) => setEtaOverrideReason(event.target.value)} placeholder="Reason for this update (optional)" /><button type="submit">Update ETA prediction</button></form>}</section></ShipmentManagement>}
 
-    {activeTab === "pod" && role === "LOGISTICS_OPERATOR" && <PodVerificationQueue><section className="grid"><section className="card"><h2>Complete delivery</h2>{pod ? <><p>Received by: <strong>{pod.deliveredToName}</strong></p><p>Verification: <span className="chip">{pod.verificationStatus}</span></p>{pod.deliveryNotes && <p>Notes: {pod.deliveryNotes}</p>}<div className="proof-images">{pod.signatureUrl && <img src={`${API_URL}${pod.signatureUrl}`} alt="Delivery signature" />}{pod.photoUrl && <img src={`${API_URL}${pod.photoUrl}`} alt="Delivery proof" />}</div></> : <form className="form" onSubmit={submitPod}><p>Load one of your assigned shipments and upload its delivery proof.</p><input required value={recipient} onChange={(event) => setRecipient(event.target.value)} placeholder="Recipient name" /><input required type="file" accept="image/*" onChange={(event) => setPodFile(event.target.files?.[0])} /><textarea value={deliveryNotes} onChange={(event) => setDeliveryNotes(event.target.value)} placeholder="Delivery notes (optional)" /><button type="submit">Complete delivery</button></form>}</section></section></PodVerificationQueue>}
+    {activeTab === "pod" && role === "LOGISTICS_OPERATOR" && <PodVerificationQueue><section className="grid"><section className="card"><h2>Complete delivery</h2>{pod ? <><p>Received by: <strong>{pod.deliveredToName}</strong></p><p>Verification: <span className="chip">{pod.verificationStatus}</span></p>{pod.deliveryNotes && <p>Notes: {pod.deliveryNotes}</p>}<div className="proof-images">{pod.signatureUrl && <ProtectedImage src={`${API_URL}${pod.signatureUrl}`} token={token} alt="Delivery signature" />}{pod.photoUrl && <ProtectedImage src={`${API_URL}${pod.photoUrl}`} token={token} alt="Delivery proof" />}</div></> : <form className="form" onSubmit={submitPod}><p>Load an assigned shipment and collect complete delivery proof.</p><input required value={recipient} onChange={(event) => setRecipient(event.target.value)} placeholder="Recipient name" /><label className="field-label">Recipient signature</label><SignaturePad ref={signatureRef} /><label className="field-label">Delivery photo</label><input required type="file" accept="image/*" onChange={(event) => setPodFile(event.target.files?.[0])} /><textarea value={deliveryNotes} onChange={(event) => setDeliveryNotes(event.target.value)} placeholder="Delivery notes (optional)" /><button type="submit">Complete delivery</button></form>}</section></section></PodVerificationQueue>}
 
     {activeTab === "pod" && (role === "SUPPORT_AGENT" || role === "ADMINISTRATOR") && <PodVerificationQueue><section id="verification" className="grid"><section className="card"><h2>Proof verification queue</h2><p>Review delivery proofs waiting for approval.</p><button onClick={loadPendingProofs}>Load pending proofs</button>{!pendingProofs.length && <p>No pending proofs are loaded.</p>}<div className="queue">{pendingProofs.map((proof) => <button className="queue-item" key={proof.shipmentId} onClick={() => openProof(proof)}><strong>Shipment #{proof.shipmentId}</strong><span>Received by {proof.deliveredToName}</span><small>{proof.deliveredAt ? new Date(proof.deliveredAt).toLocaleString() : "Date not available"}</small></button>)}</div></section>
-      <section className="card"><h2>Proof review details</h2>{selectedProof ? <><p>Shipment: <strong>#{selectedProof.shipmentId}</strong></p><p>Received by: <strong>{selectedProof.deliveredToName}</strong></p>{selectedProof.deliveryNotes && <p>Notes: {selectedProof.deliveryNotes}</p>}<div className="proof-images">{selectedProof.signatureUrl && <img src={`${API_URL}${selectedProof.signatureUrl}`} alt="Full delivery signature" />}{selectedProof.photoUrl && <img src={`${API_URL}${selectedProof.photoUrl}`} alt="Full delivery photo" />}</div><div className="actions"><button onClick={() => verifyProof("VERIFIED")}>Approve proof</button><button className="danger" onClick={() => verifyProof("REJECTED")}>Reject proof</button></div></> : <p>Select a proof from the queue to see its signature and photo.</p>}</section></section></PodVerificationQueue>}
+      <section className="card"><h2>Proof review details</h2>{selectedProof ? <><p>Shipment: <strong>#{selectedProof.shipmentId}</strong></p><p>Received by: <strong>{selectedProof.deliveredToName}</strong></p>{selectedProof.deliveryNotes && <p>Notes: {selectedProof.deliveryNotes}</p>}<div className="proof-images">{selectedProof.signatureUrl && <ProtectedImage src={`${API_URL}${selectedProof.signatureUrl}`} token={token} alt="Full delivery signature" />}{selectedProof.photoUrl && <ProtectedImage src={`${API_URL}${selectedProof.photoUrl}`} token={token} alt="Full delivery photo" />}</div><div className="actions"><button onClick={() => verifyProof("VERIFIED")}>Approve proof</button><button className="danger" onClick={() => verifyProof("REJECTED")}>Reject proof</button></div></> : <p>Select a proof from the queue to see its signature and photo.</p>}</section></section></PodVerificationQueue>}
 
     {activeTab === "notifications" && <section className="module-view"><div className="module-heading"><p className="eyebrow">NOTIFICATIONS</p><h2>Notification center</h2><p>Review shipment updates and delivery alerts.</p></div><div className="notification-list">{notifications.map((item) => <button key={item.id} className={`notification-item ${item.readAt ? "read" : ""}`} onClick={() => markRead(item)}><strong>{item.title}</strong><span>{item.message}</span></button>)}{!notifications.length && <p className="empty-state">No notifications yet.</p>}</div></section>}
-    {activeTab === "analytics" && <section id="analytics"><AnalyticsDashboard role={role === "ADMINISTRATOR" ? "admin" : role === "BUSINESS_CLIENT" ? "business-client" : "customer"} token={token} /><ReportExporter token={token} /></section>}
+    {activeTab === "analytics" && <section id="analytics"><AnalyticsDashboard role={role === "ADMINISTRATOR" ? "admin" : role === "BUSINESS_CLIENT" ? "business" : "customer"} token={token} /><ReportExporter token={token} /></section>}
     {authModal}
   </Layout>;
 }

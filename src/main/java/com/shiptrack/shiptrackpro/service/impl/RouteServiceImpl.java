@@ -1,8 +1,11 @@
 package com.shiptrack.shiptrackpro.service.impl;
 
 import com.shiptrack.shiptrackpro.dto.DriverAssignmentRequest;
+import com.shiptrack.shiptrackpro.dto.DriverLocationRequest;
+import com.shiptrack.shiptrackpro.dto.LocationUpdateResponse;
 import com.shiptrack.shiptrackpro.dto.RouteRequest;
 import com.shiptrack.shiptrackpro.dto.RouteResponse;
+import com.shiptrack.shiptrackpro.dto.TrackingEventRequest;
 import com.shiptrack.shiptrackpro.entity.Route;
 import com.shiptrack.shiptrackpro.entity.Shipment;
 import com.shiptrack.shiptrackpro.entity.User;
@@ -13,8 +16,11 @@ import com.shiptrack.shiptrackpro.service.RouteService;
 import com.shiptrack.shiptrackpro.service.RouteOptimizationService;
 import com.shiptrack.shiptrackpro.service.EtaPredictionService;
 import com.shiptrack.shiptrackpro.service.ShipmentAccessService;
+import com.shiptrack.shiptrackpro.service.TrackingEventService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
+import org.springframework.cache.annotation.CacheEvict;
+import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.GrantedAuthority;
 import org.springframework.security.core.context.SecurityContextHolder;
@@ -23,6 +29,8 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.util.List;
+import java.time.LocalDateTime;
+import java.math.BigDecimal;
 
 @Service
 @RequiredArgsConstructor
@@ -34,9 +42,12 @@ public class RouteServiceImpl implements RouteService {
     private final RouteOptimizationService routeOptimizationService;
     private final ShipmentAccessService shipmentAccessService;
     private final EtaPredictionService etaPredictionService;
+    private final TrackingEventService trackingEventService;
+    private final SimpMessagingTemplate messagingTemplate;
 
     @Override
     @Transactional
+    @CacheEvict(cacheNames = {"customerAnalytics", "businessAnalytics", "adminAnalytics"}, allEntries = true)
     public RouteResponse createRoute(RouteRequest request) {
         Authentication authentication = requireRouteManager();
 
@@ -64,6 +75,17 @@ public class RouteServiceImpl implements RouteService {
         RouteOptimizationService.RouteOptimizationResult optimization =
                 routeOptimizationService.optimize(origin, destination);
         var selectedAlternative = optimization.selectedAlternative();
+        var originCoordinates = optimization.originCoordinates();
+        var destinationCoordinates = optimization.destinationCoordinates();
+
+        if (originCoordinates != null) {
+            shipment.setPickupLatitude(originCoordinates.latitude());
+            shipment.setPickupLongitude(originCoordinates.longitude());
+        }
+        if (destinationCoordinates != null) {
+            shipment.setDeliveryLatitude(destinationCoordinates.latitude());
+            shipment.setDeliveryLongitude(destinationCoordinates.longitude());
+        }
 
         // Rerouting retains the old record for the shipment history while the
         // new route becomes the single active route.
@@ -75,6 +97,10 @@ public class RouteServiceImpl implements RouteService {
                 .createdBy(findCurrentUser(authentication))
                 .origin(origin)
                 .destination(destination)
+                .originLatitude(decimal(originCoordinates == null ? null : originCoordinates.latitude()))
+                .originLongitude(decimal(originCoordinates == null ? null : originCoordinates.longitude()))
+                .destinationLatitude(decimal(destinationCoordinates == null ? null : destinationCoordinates.latitude()))
+                .destinationLongitude(decimal(destinationCoordinates == null ? null : destinationCoordinates.longitude()))
                 .waypoints(blankToNull(request.getWaypoints()))
                 .trafficCondition(valueOrFallback(request.getTrafficCondition(),
                         selectedAlternative == null ? "NORMAL" : "LIVE_TRAFFIC"))
@@ -97,6 +123,7 @@ public class RouteServiceImpl implements RouteService {
 
     @Override
     @Transactional
+    @CacheEvict(cacheNames = {"customerAnalytics", "businessAnalytics", "adminAnalytics"}, allEntries = true)
     public RouteResponse assignDriver(
             Long shipmentId,
             DriverAssignmentRequest request
@@ -128,6 +155,48 @@ public class RouteServiceImpl implements RouteService {
                 .stream()
                 .map(this::toResponse)
                 .toList();
+    }
+
+    @Override
+    @Transactional
+    @CacheEvict(cacheNames = {"customerAnalytics", "businessAnalytics", "adminAnalytics"}, allEntries = true)
+    public LocationUpdateResponse updateLocation(
+            Long routeId,
+            DriverLocationRequest request
+    ) {
+        Authentication authentication = requireRouteManager();
+        Route route = routeRepository.findById(routeId)
+                .orElseThrow(() -> notFound("Route not found with id: " + routeId));
+        requireAssignedOperatorOrAdministrator(route.getShipment(), authentication);
+
+        LocalDateTime recordedAt = LocalDateTime.now();
+        route.setLastKnownLatitude(request.getLatitude());
+        route.setLastKnownLongitude(request.getLongitude());
+        route.setLastLocationUpdatedAt(recordedAt);
+        routeRepository.save(route);
+
+        TrackingEventRequest trackingRequest = new TrackingEventRequest();
+        trackingRequest.setStatus(route.getShipment().getStatus());
+        trackingRequest.setLocation(blankToNull(request.getLocation()));
+        trackingRequest.setLatitude(request.getLatitude().doubleValue());
+        trackingRequest.setLongitude(request.getLongitude().doubleValue());
+        trackingRequest.setNotes("Driver location updated");
+        trackingRequest.setEventTimestamp(recordedAt);
+        trackingEventService.addTrackingEvent(route.getShipment().getId(), trackingRequest);
+
+        LocationUpdateResponse response = LocationUpdateResponse.builder()
+                .routeId(route.getId())
+                .shipmentId(route.getShipment().getId())
+                .trackingNumber(route.getShipment().getTrackingNumber())
+                .latitude(request.getLatitude())
+                .longitude(request.getLongitude())
+                .location(blankToNull(request.getLocation()))
+                .recordedAt(recordedAt)
+                .build();
+        messagingTemplate.convertAndSend(
+                "/topic/shipments/" + route.getShipment().getId() + "/location",
+                response);
+        return response;
     }
 
     private Route findRoute(Long shipmentId) {
@@ -252,10 +321,17 @@ public class RouteServiceImpl implements RouteService {
                 .driverEmail(driver == null ? null : driver.getEmail())
                 .origin(route.getOrigin())
                 .destination(route.getDestination())
+                .originLatitude(route.getOriginLatitude())
+                .originLongitude(route.getOriginLongitude())
+                .destinationLatitude(route.getDestinationLatitude())
+                .destinationLongitude(route.getDestinationLongitude())
                 .waypoints(route.getWaypoints())
                 .distanceKm(route.getDistanceKm())
                 .estimatedTimeMinutes(route.getEstimatedTimeMinutes())
                 .actualTimeMinutes(route.getActualTimeMinutes())
+                .lastKnownLatitude(route.getLastKnownLatitude())
+                .lastKnownLongitude(route.getLastKnownLongitude())
+                .lastLocationUpdatedAt(route.getLastLocationUpdatedAt())
                 .trafficCondition(route.getTrafficCondition())
                 .isCurrent(route.isCurrent())
                 .routeSummary(route.getRouteSummary())
@@ -268,6 +344,10 @@ public class RouteServiceImpl implements RouteService {
     private String valueOrFallback(String preferred, String fallback) {
         String normalizedPreferred = blankToNull(preferred);
         return normalizedPreferred == null ? blankToNull(fallback) : normalizedPreferred;
+    }
+
+    private BigDecimal decimal(Double value) {
+        return value == null ? null : BigDecimal.valueOf(value);
     }
 
     private String blankToNull(String value) {

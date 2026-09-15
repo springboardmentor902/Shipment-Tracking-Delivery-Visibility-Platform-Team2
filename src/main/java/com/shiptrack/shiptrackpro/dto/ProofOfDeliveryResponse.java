@@ -12,10 +12,15 @@ public class ProofOfDeliveryResponse {
     private Long id;
     private Long shipmentId;
     private Long verifiedById;
+    private String verifiedByName;
+    private Long submittedById;
+    private String submittedByName;
     private String signatureUrl;
     private String photoUrl;
     private String deliveredToName;
     private String deliveryNotes;
     private String verificationStatus;
     private LocalDateTime deliveredAt;
+    private LocalDateTime verifiedAt;
+    private String verificationNotes;
 }

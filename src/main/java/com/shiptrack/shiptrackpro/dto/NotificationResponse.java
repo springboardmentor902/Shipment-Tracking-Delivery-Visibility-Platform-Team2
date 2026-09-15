@@ -4,10 +4,11 @@ import lombok.Builder;
 import lombok.Data;
 
 import java.time.LocalDateTime;
+import java.io.Serializable;
 
 @Data
 @Builder
-public class NotificationResponse {
+public class NotificationResponse implements Serializable {
 
     private Long id;
     private Long shipmentId;

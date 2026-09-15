@@ -2,10 +2,11 @@ package com.shiptrack.shiptrackpro.dto;
 
 import lombok.Builder;
 import lombok.Getter;
+import java.io.Serializable;
 
 @Getter
 @Builder
-public class RouteAnalyticsResponse {
+public class RouteAnalyticsResponse implements Serializable {
 
     private long totalRoutes;
     private double averageRouteDistanceKm;

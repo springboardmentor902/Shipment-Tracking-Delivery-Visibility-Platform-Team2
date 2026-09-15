@@ -28,7 +28,7 @@ public interface NotificationService {
             Shipment shipment
     );
 
-    NotificationResponse createForCurrentUser(NotificationCreateRequest request);
+    NotificationResponse createForShipmentOwner(NotificationCreateRequest request);
 
     List<NotificationResponse> getCurrentUserNotifications();
 

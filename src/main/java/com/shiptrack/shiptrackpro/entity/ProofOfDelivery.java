@@ -42,6 +42,10 @@ public class ProofOfDelivery {
     @JoinColumn(name = "verified_by")
     private User verifiedBy;
 
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "submitted_by")
+    private User submittedBy;
+
     @Column(name = "signature_url", length = 512)
     private String signatureUrl;
 
@@ -60,6 +64,11 @@ public class ProofOfDelivery {
 
     @Column(name = "delivered_at", nullable = false)
     private LocalDateTime deliveredAt;
+
+    private LocalDateTime verifiedAt;
+
+    @Column(length = 500)
+    private String verificationNotes;
 
     @PrePersist
     void initializeDefaults() {

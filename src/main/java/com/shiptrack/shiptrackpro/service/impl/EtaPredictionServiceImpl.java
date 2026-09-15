@@ -16,6 +16,7 @@ import com.shiptrack.shiptrackpro.service.ShipmentAccessService;
 import com.shiptrack.shiptrackpro.service.CurrentUserService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -51,6 +52,7 @@ public class EtaPredictionServiceImpl implements EtaPredictionService {
 
     @Override
     @Transactional
+    @CacheEvict(cacheNames = {"customerAnalytics", "businessAnalytics", "adminAnalytics"}, allEntries = true)
     public EtaPredictionResponse predict(Long shipmentId) {
         Shipment shipment = findShipment(shipmentId);
         shipmentAccessService.requireCanManageShipment(shipment);
@@ -71,6 +73,7 @@ public class EtaPredictionServiceImpl implements EtaPredictionService {
 
     @Override
     @Transactional
+    @CacheEvict(cacheNames = {"customerAnalytics", "businessAnalytics", "adminAnalytics"}, allEntries = true)
     public EtaPredictionResponse overridePrediction(Long shipmentId, EtaOverrideRequest request) {
         Shipment shipment = findShipment(shipmentId);
         if (!currentUserService.hasRole(currentUserService.getRequiredCurrentUser(), "ADMINISTRATOR")) {
@@ -100,12 +103,14 @@ public class EtaPredictionServiceImpl implements EtaPredictionService {
 
     @Override
     @Transactional
+    @CacheEvict(cacheNames = {"customerAnalytics", "businessAnalytics", "adminAnalytics"}, allEntries = true)
     public Optional<EtaPredictionResponse> recalculateAfterTrackingEvent(Long shipmentId) {
         return calculate(findShipment(shipmentId), true);
     }
 
     @Override
     @Transactional
+    @CacheEvict(cacheNames = {"customerAnalytics", "businessAnalytics", "adminAnalytics"}, allEntries = true)
     public int recalculateInProgressShipments() {
         List<String> inProgressStatuses = List.of("PICKED_UP", "IN_TRANSIT", "OUT_FOR_DELIVERY");
         int updated = 0;
@@ -130,6 +135,8 @@ public class EtaPredictionServiceImpl implements EtaPredictionService {
 
         EtaPrediction prediction = etaPredictionRepository.findByShipment_Id(shipment.getId())
                 .orElseGet(EtaPrediction::new);
+        BigDecimal previousRisk = prediction.getId() == null
+                ? null : prediction.getDelayRiskScore();
         if (prediction.isManuallyAdjusted()) {
             return Optional.of(toResponse(prediction));
         }
@@ -147,7 +154,8 @@ public class EtaPredictionServiceImpl implements EtaPredictionService {
             notificationService.send("ETA_UPDATE", shipment.getCreatedBy(), shipment);
         }
         if (notifyOnRisk && shipment.getCreatedBy() != null
-                && calculation.delayRiskScore().compareTo(delayRiskThreshold) >= 0) {
+                && calculation.delayRiskScore().compareTo(delayRiskThreshold) >= 0
+                && (previousRisk == null || previousRisk.compareTo(delayRiskThreshold) < 0)) {
             notificationService.send("DELAY_WARNING", shipment.getCreatedBy(), shipment);
         }
         return Optional.of(toResponse(savedPrediction));

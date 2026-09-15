@@ -15,6 +15,7 @@ import com.shiptrack.shiptrackpro.service.ShipmentAccessService;
 import com.shiptrack.shiptrackpro.service.NotificationService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.core.io.Resource;
+import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -35,6 +36,7 @@ public class ProofOfDeliveryServiceImpl implements ProofOfDeliveryService {
 
     @Override
     @Transactional
+    @CacheEvict(cacheNames = {"customerAnalytics", "businessAnalytics", "adminAnalytics"}, allEntries = true)
     public ProofOfDeliveryResponse submit(Long shipmentId, ProofOfDeliveryRequest request) {
         Shipment shipment = findShipment(shipmentId);
         shipmentAccessService.requireCanSubmitProofOfDelivery(shipment);
@@ -51,6 +53,7 @@ public class ProofOfDeliveryServiceImpl implements ProofOfDeliveryService {
 
         ProofOfDelivery proof = ProofOfDelivery.builder()
                 .shipment(shipment)
+                .submittedBy(shipmentAccessService.currentUser())
                 .signatureUrl(fileStorageService.store(request.getSignature()))
                 .photoUrl(fileStorageService.store(request.getPhoto()))
                 .deliveredToName(request.getDeliveredToName().trim())
@@ -71,6 +74,7 @@ public class ProofOfDeliveryServiceImpl implements ProofOfDeliveryService {
 
     @Override
     @Transactional
+    @CacheEvict(cacheNames = {"customerAnalytics", "businessAnalytics", "adminAnalytics"}, allEntries = true)
     public ProofOfDeliveryResponse verify(Long shipmentId, VerifyProofOfDeliveryRequest request) {
         shipmentAccessService.requireSupportAgentOrAdministrator();
         ProofOfDelivery proof = findProof(shipmentId);
@@ -82,6 +86,8 @@ public class ProofOfDeliveryServiceImpl implements ProofOfDeliveryService {
         User reviewer = shipmentAccessService.currentUser();
         proof.setVerificationStatus(request.getVerificationStatus());
         proof.setVerifiedBy(reviewer);
+        proof.setVerifiedAt(LocalDateTime.now());
+        proof.setVerificationNotes(blankToNull(request.getVerificationNotes()));
         return toResponse(proofOfDeliveryRepository.save(proof));
     }
 
@@ -137,12 +143,17 @@ public class ProofOfDeliveryServiceImpl implements ProofOfDeliveryService {
                 .id(proof.getId())
                 .shipmentId(proof.getShipment().getId())
                 .verifiedById(proof.getVerifiedBy() == null ? null : proof.getVerifiedBy().getId())
+                .verifiedByName(proof.getVerifiedBy() == null ? null : proof.getVerifiedBy().getFullName())
+                .submittedById(proof.getSubmittedBy() == null ? null : proof.getSubmittedBy().getId())
+                .submittedByName(proof.getSubmittedBy() == null ? null : proof.getSubmittedBy().getFullName())
                 .signatureUrl(proof.getSignatureUrl())
                 .photoUrl(proof.getPhotoUrl())
                 .deliveredToName(proof.getDeliveredToName())
                 .deliveryNotes(proof.getDeliveryNotes())
                 .verificationStatus(proof.getVerificationStatus().name())
                 .deliveredAt(proof.getDeliveredAt())
+                .verifiedAt(proof.getVerifiedAt())
+                .verificationNotes(proof.getVerificationNotes())
                 .build();
     }
 }

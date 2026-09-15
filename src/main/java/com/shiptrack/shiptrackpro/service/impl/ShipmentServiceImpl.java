@@ -4,17 +4,20 @@ import com.shiptrack.shiptrackpro.dto.ShipmentRequest;
 import com.shiptrack.shiptrackpro.dto.ShipmentResponse;
 import com.shiptrack.shiptrackpro.dto.PackageRequest;
 import com.shiptrack.shiptrackpro.dto.PackageResponse;
+import com.shiptrack.shiptrackpro.dto.PublicTrackingResponse;
 import com.shiptrack.shiptrackpro.entity.Shipment;
 import com.shiptrack.shiptrackpro.entity.ShipmentPackage;
 import com.shiptrack.shiptrackpro.entity.User;
 import com.shiptrack.shiptrackpro.repository.ShipmentRepository;
 import com.shiptrack.shiptrackpro.repository.UserRepository;
+import com.shiptrack.shiptrackpro.repository.TrackingEventRepository;
 import com.shiptrack.shiptrackpro.service.CurrentUserService;
 import com.shiptrack.shiptrackpro.service.ShipmentService;
 import com.shiptrack.shiptrackpro.service.ShipmentAccessService;
 import com.shiptrack.shiptrackpro.service.NotificationService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
+import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
@@ -34,8 +37,10 @@ public class ShipmentServiceImpl implements ShipmentService {
     private final CurrentUserService currentUserService;
     private final ShipmentAccessService shipmentAccessService;
     private final NotificationService notificationService;
+    private final TrackingEventRepository trackingEventRepository;
 
     @Override
+    @CacheEvict(cacheNames = {"customerAnalytics", "businessAnalytics", "adminAnalytics"}, allEntries = true)
     public ShipmentResponse createShipment(ShipmentRequest request) {
 
         User creator = currentUserService.getRequiredCurrentUser();
@@ -93,7 +98,7 @@ public class ShipmentServiceImpl implements ShipmentService {
             String trackingNumber) {
 
         Shipment shipment = shipmentRepository
-                .findByTrackingNumber(trackingNumber)
+                .findByTrackingNumberIgnoreCase(trackingNumber.trim())
                 .orElseThrow(() -> new ResponseStatusException(
                         HttpStatus.NOT_FOUND,
                         "Shipment not found with tracking number: "
@@ -105,6 +110,35 @@ public class ShipmentServiceImpl implements ShipmentService {
     }
 
     @Override
+    @Transactional(readOnly = true)
+    public PublicTrackingResponse getPublicTracking(String trackingNumber) {
+        Shipment shipment = shipmentRepository
+                .findByTrackingNumberIgnoreCase(trackingNumber.trim())
+                .orElseThrow(() -> new ResponseStatusException(
+                        HttpStatus.NOT_FOUND,
+                        "Shipment not found with tracking number: " + trackingNumber));
+
+        List<PublicTrackingResponse.Event> events = trackingEventRepository
+                .findByShipment_IdOrderByEventTimestampAsc(shipment.getId())
+                .stream()
+                .map(event -> PublicTrackingResponse.Event.builder()
+                        .status(event.getStatus())
+                        .location(event.getLocation())
+                        .eventTimestamp(event.getEventTimestamp())
+                        .build())
+                .toList();
+        return PublicTrackingResponse.builder()
+                .trackingNumber(shipment.getTrackingNumber())
+                .status(shipment.getStatus())
+                .estimatedDeliveryDate(shipment.getEstimatedDeliveryDate())
+                .actualDeliveryDate(shipment.getActualDeliveryDate())
+                .lastUpdatedAt(shipment.getUpdatedAt())
+                .events(events)
+                .build();
+    }
+
+    @Override
+    @CacheEvict(cacheNames = {"customerAnalytics", "businessAnalytics", "adminAnalytics"}, allEntries = true)
     public ShipmentResponse updateShipment(
             Long id,
             ShipmentRequest request) {
@@ -121,6 +155,7 @@ public class ShipmentServiceImpl implements ShipmentService {
     }
 
     @Override
+    @CacheEvict(cacheNames = {"customerAnalytics", "businessAnalytics", "adminAnalytics"}, allEntries = true)
     public ShipmentResponse assignOperator(Long id, Long operatorId) {
         Shipment shipment = findShipment(id);
         User currentUser = currentUserService.getRequiredCurrentUser();
@@ -144,6 +179,7 @@ public class ShipmentServiceImpl implements ShipmentService {
     }
 
     @Override
+    @CacheEvict(cacheNames = {"customerAnalytics", "businessAnalytics", "adminAnalytics"}, allEntries = true)
     public void deleteShipment(Long id) {
 
         Shipment shipment = findShipment(id);

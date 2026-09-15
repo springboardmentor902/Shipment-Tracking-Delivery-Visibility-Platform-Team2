@@ -6,6 +6,7 @@ import com.shiptrack.shiptrackpro.dto.CustomerAnalyticsResponse;
 import com.shiptrack.shiptrackpro.dto.NotificationResponse;
 import com.shiptrack.shiptrackpro.dto.RouteAnalyticsResponse;
 import com.shiptrack.shiptrackpro.dto.RouteResponse;
+import com.shiptrack.shiptrackpro.dto.ShipmentAnalyticsItem;
 import com.shiptrack.shiptrackpro.entity.Notification;
 import com.shiptrack.shiptrackpro.entity.EtaPrediction;
 import com.shiptrack.shiptrackpro.entity.ProofOfDeliveryVerificationStatus;
@@ -18,8 +19,10 @@ import com.shiptrack.shiptrackpro.repository.ProofOfDeliveryRepository;
 import com.shiptrack.shiptrackpro.repository.RouteRepository;
 import com.shiptrack.shiptrackpro.repository.ShipmentRepository;
 import com.shiptrack.shiptrackpro.repository.UserRepository;
+import com.shiptrack.shiptrackpro.repository.TrackingEventRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
@@ -33,6 +36,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.TreeMap;
 import java.util.Comparator;
+import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
@@ -49,8 +53,10 @@ public class AnalyticsService {
     private final CurrentUserService currentUserService;
     private final RouteRepository routeRepository;
     private final EtaPredictionRepository etaPredictionRepository;
+    private final TrackingEventRepository trackingEventRepository;
 
     @Transactional(readOnly = true)
+    @Cacheable(cacheNames = "customerAnalytics", key = "#customerId")
     public CustomerAnalyticsResponse getCustomerDashboard(Long customerId) {
         requireCurrentUserOrAdmin(customerId, "CUSTOMER");
         List<Shipment> shipments = shipmentRepository.findByCreatedBy_Id(customerId);
@@ -59,7 +65,10 @@ public class AnalyticsService {
                 .totalShipments(shipments.size())
                 .totalShipmentHistoryCount(shipments.size())
                 .activeShipments(countActiveShipments(shipments))
+                .deliveredShipments(countStatus(shipments, DELIVERED))
                 .attentionRequired(countAttentionRequired(shipments))
+                .totalTrackingEvents(totalTrackingEvents(shipments))
+                .lastTrackingUpdate(lastTrackingUpdate(shipments))
                 .pendingVerifications(0)
                 .statusBreakdown(statusBreakdown(shipments))
                 .monthlyShipmentVolume(monthlyVolume(shipments))
@@ -69,10 +78,12 @@ public class AnalyticsService {
                         .limit(10)
                         .map(this::toNotificationResponse)
                         .toList())
+                .shipmentHistory(shipmentHistory(shipments))
                 .build();
     }
 
     @Transactional(readOnly = true)
+    @Cacheable(cacheNames = "businessAnalytics", key = "#clientId")
     public BusinessClientAnalyticsResponse getBusinessClientDashboard(Long clientId) {
         requireCurrentUserOrAdmin(clientId, "BUSINESS_CLIENT");
         List<Shipment> shipments = shipmentRepository.findByCreatedBy_Id(clientId);
@@ -84,16 +95,28 @@ public class AnalyticsService {
                 .totalShipmentVolume(shipments.size())
                 .totalShipments(shipments.size())
                 .activeShipments(countActiveShipments(shipments))
+                .deliveredShipments(countStatus(shipments, DELIVERED))
+                .failedDeliveries(countFailed(shipments))
+                .onTimeDeliveries(countOnTime(shipments))
+                .deliverySuccessRate(percentage(countStatus(shipments, DELIVERED), shipments.size()))
                 .attentionRequired(countAttentionRequired(shipments))
+                .atRiskShipments(countAttentionRequired(shipments))
+                .totalTrackingEvents(totalTrackingEvents(shipments))
                 .pendingVerifications(0)
                 .statusBreakdown(statusBreakdown(shipments))
                 .monthlyShipmentVolume(monthlyVolume(shipments))
                 .delayedShipmentCount(delayed.size())
                 .averageDelayDays(averageDelayDays(delayed))
+                .customerActivity(customerActivity(shipments))
+                .shipmentHistory(shipmentHistory(shipments))
+                .atRiskShipmentList(shipmentHistory(shipments.stream()
+                        .filter(this::requiresAttention)
+                        .toList()))
                 .build();
     }
 
     @Transactional(readOnly = true)
+    @Cacheable(cacheNames = "adminAnalytics", key = "'platform'")
     public AdminAnalyticsResponse getAdminDashboard() {
         requireAdmin();
         List<Shipment> shipments = shipmentRepository.findAll();
@@ -102,9 +125,20 @@ public class AnalyticsService {
                         ProofOfDeliveryVerificationStatus.PENDING)
                 .size();
 
+        long delivered = countStatus(shipments, DELIVERED);
+        long onTime = countOnTime(shipments);
         return AdminAnalyticsResponse.builder()
                 .totalUsers(userRepository.count())
+                .activeUsers(userRepository.findAll().stream()
+                        .filter(user -> "ACTIVE".equalsIgnoreCase(user.getStatus()))
+                        .count())
                 .totalShipments(shipments.size())
+                .deliveredShipments(delivered)
+                .failedDeliveries(countFailed(shipments))
+                .onTimeDeliveries(onTime)
+                .onTimeDeliveryRate(percentage(onTime, delivered))
+                .totalTrackingEvents(totalTrackingEvents(shipments))
+                .lastTrackingUpdate(lastTrackingUpdate(shipments))
                 .activeShipments(countActiveShipments(shipments))
                 .attentionRequired(countAttentionRequired(shipments))
                 .pendingPodVerifications(pendingPodVerifications)
@@ -112,8 +146,86 @@ public class AnalyticsService {
                 .delayedShipments(countStatus(shipments, DELAYED))
                 .statusBreakdown(statusBreakdown(shipments))
                 .monthlyShipmentVolume(monthlyVolume(shipments))
+                .userRoleBreakdown(userRoleBreakdown())
                 .routeAnalytics(routeAnalytics())
+                .systemStatus("OPERATIONAL")
+                .generatedAt(LocalDateTime.now())
+                .availableReports(List.of("SHIPMENTS", "DELIVERIES", "ROUTES", "DELAYS"))
                 .build();
+    }
+
+    private long totalTrackingEvents(List<Shipment> shipments) {
+        List<Long> ids = shipmentIds(shipments);
+        return ids.isEmpty() ? 0 : trackingEventRepository.countByShipment_IdIn(ids);
+    }
+
+    private LocalDateTime lastTrackingUpdate(List<Shipment> shipments) {
+        List<Long> ids = shipmentIds(shipments);
+        return ids.isEmpty() ? null : trackingEventRepository
+                .findFirstByShipment_IdInOrderByEventTimestampDesc(ids)
+                .map(event -> event.getEventTimestamp())
+                .orElse(null);
+    }
+
+    private List<Long> shipmentIds(List<Shipment> shipments) {
+        return shipments.stream().map(Shipment::getId).toList();
+    }
+
+    private long countFailed(List<Shipment> shipments) {
+        return shipments.stream()
+                .filter(shipment -> "FAILED".equalsIgnoreCase(shipment.getStatus())
+                        || "FAILED_DELIVERY".equalsIgnoreCase(shipment.getStatus()))
+                .count();
+    }
+
+    private long countOnTime(List<Shipment> shipments) {
+        return shipments.stream()
+                .filter(shipment -> DELIVERED.equalsIgnoreCase(shipment.getStatus()))
+                .filter(shipment -> shipment.getActualDeliveryDate() != null
+                        && shipment.getEstimatedDeliveryDate() != null
+                        && !shipment.getActualDeliveryDate().isAfter(
+                        shipment.getEstimatedDeliveryDate()))
+                .count();
+    }
+
+    private double percentage(long value, long total) {
+        return total == 0 ? 0 : round(value * 100.0 / total);
+    }
+
+    private Map<String, Long> customerActivity(List<Shipment> shipments) {
+        return shipments.stream()
+                .filter(shipment -> shipment.getReceiverName() != null)
+                .collect(Collectors.groupingBy(
+                        Shipment::getReceiverName,
+                        TreeMap::new,
+                        Collectors.counting()));
+    }
+
+    private Map<String, Long> userRoleBreakdown() {
+        return userRepository.findAll().stream()
+                .collect(Collectors.groupingBy(
+                        User::getRole,
+                        TreeMap::new,
+                        Collectors.counting()));
+    }
+
+    private List<ShipmentAnalyticsItem> shipmentHistory(List<Shipment> shipments) {
+        return shipments.stream()
+                .sorted(Comparator.comparing(
+                        Shipment::getCreatedAt,
+                        Comparator.nullsLast(Comparator.reverseOrder())))
+                .map(shipment -> ShipmentAnalyticsItem.builder()
+                        .id(shipment.getId())
+                        .trackingNumber(shipment.getTrackingNumber())
+                        .status(shipment.getStatus())
+                        .receiverName(shipment.getReceiverName())
+                        .pickupAddress(shipment.getPickupAddress())
+                        .deliveryAddress(shipment.getDeliveryAddress())
+                        .createdAt(shipment.getCreatedAt())
+                        .estimatedDeliveryDate(shipment.getEstimatedDeliveryDate())
+                        .actualDeliveryDate(shipment.getActualDeliveryDate())
+                        .build())
+                .toList();
     }
 
     private void requireCurrentUserOrAdmin(Long userId, String expectedRole) {
@@ -290,6 +402,9 @@ public class AnalyticsService {
                 .distanceKm(route.getDistanceKm())
                 .estimatedTimeMinutes(route.getEstimatedTimeMinutes())
                 .actualTimeMinutes(actualDurationMinutes(route))
+                .lastKnownLatitude(route.getLastKnownLatitude())
+                .lastKnownLongitude(route.getLastKnownLongitude())
+                .lastLocationUpdatedAt(route.getLastLocationUpdatedAt())
                 .trafficCondition(route.getTrafficCondition())
                 .isCurrent(route.isCurrent())
                 .routeSummary(route.getRouteSummary())

@@ -4,6 +4,7 @@ import com.shiptrack.shiptrackpro.entity.TrackingEvent;
 import org.springframework.data.jpa.repository.JpaRepository;
 
 import java.util.List;
+import java.util.Collection;
 import java.util.Optional;
 
 public interface TrackingEventRepository extends JpaRepository<TrackingEvent, Long> {
@@ -11,4 +12,9 @@ public interface TrackingEventRepository extends JpaRepository<TrackingEvent, Lo
     List<TrackingEvent> findByShipment_IdOrderByEventTimestampAsc(Long shipmentId);
 
     Optional<TrackingEvent> findTopByShipment_IdOrderByEventTimestampDesc(Long shipmentId);
+
+    long countByShipment_IdIn(Collection<Long> shipmentIds);
+
+    Optional<TrackingEvent> findFirstByShipment_IdInOrderByEventTimestampDesc(
+            Collection<Long> shipmentIds);
 }

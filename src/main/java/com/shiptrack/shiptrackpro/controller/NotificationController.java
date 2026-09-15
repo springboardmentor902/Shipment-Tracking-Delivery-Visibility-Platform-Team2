@@ -41,6 +41,6 @@ public class NotificationController {
             @Valid @RequestBody NotificationCreateRequest request
     ) {
         return ResponseEntity.status(HttpStatus.CREATED)
-                .body(notificationService.createForCurrentUser(request));
+                .body(notificationService.createForShipmentOwner(request));
     }
 }

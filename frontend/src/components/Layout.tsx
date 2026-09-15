@@ -11,6 +11,8 @@ type Props = {
   onTabChange: (tab: DashboardTab) => void;
   onOpenAuth: () => void;
   onLogout: () => void;
+  unreadCount?: number;
+  onOpenNotifications?: () => void;
 };
 
 export default function Layout(props: Props) {
@@ -35,7 +37,7 @@ export default function Layout(props: Props) {
         <div className="sidebar-footer"><span className="status-dot" /> All systems operational</div>
       </aside>
       <div className="content-shell">
-        <Navbar userName={props.userName} role={props.role} onOpenAuth={props.onOpenAuth} onLogout={props.onLogout} />
+        <Navbar userName={props.userName} role={props.role} onOpenAuth={props.onOpenAuth} onLogout={props.onLogout} unreadCount={props.unreadCount} onOpenNotifications={props.onOpenNotifications} />
         <main className="page">{props.children}</main>
       </div>
     </div>

@@ -54,6 +54,18 @@ public class Route {
     @Column(name = "destination_address", nullable = false, length = 500)
     private String destination;
 
+    @Column(precision = 10, scale = 7)
+    private BigDecimal originLatitude;
+
+    @Column(precision = 10, scale = 7)
+    private BigDecimal originLongitude;
+
+    @Column(precision = 10, scale = 7)
+    private BigDecimal destinationLatitude;
+
+    @Column(precision = 10, scale = 7)
+    private BigDecimal destinationLongitude;
+
     @Column(columnDefinition = "TEXT")
     private String waypoints;
 
@@ -63,6 +75,14 @@ public class Route {
     private Integer estimatedTimeMinutes;
 
     private Integer actualTimeMinutes;
+
+    @Column(precision = 10, scale = 7)
+    private BigDecimal lastKnownLatitude;
+
+    @Column(precision = 10, scale = 7)
+    private BigDecimal lastKnownLongitude;
+
+    private LocalDateTime lastLocationUpdatedAt;
 
     private String trafficCondition;
 

@@ -3,7 +3,11 @@ package com.shiptrack.shiptrackpro.controller;
 import com.shiptrack.shiptrackpro.dto.ShipmentRequest;
 import com.shiptrack.shiptrackpro.dto.ShipmentResponse;
 import com.shiptrack.shiptrackpro.dto.OperatorAssignmentRequest;
+import com.shiptrack.shiptrackpro.dto.TrackingEventRequest;
+import com.shiptrack.shiptrackpro.dto.TrackingEventResponse;
+import com.shiptrack.shiptrackpro.dto.PublicTrackingResponse;
 import com.shiptrack.shiptrackpro.service.ShipmentService;
+import com.shiptrack.shiptrackpro.service.TrackingEventService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
@@ -19,6 +23,14 @@ import java.util.List;
 public class ShipmentController {
 
     private final ShipmentService shipmentService;
+    private final TrackingEventService trackingEventService;
+
+    @GetMapping("/public/tracking/{trackingNumber}")
+    public ResponseEntity<PublicTrackingResponse> getPublicTracking(
+            @PathVariable String trackingNumber
+    ) {
+        return ResponseEntity.ok(shipmentService.getPublicTracking(trackingNumber));
+    }
 
     @PostMapping
     @PreAuthorize("hasAnyRole('CUSTOMER', 'BUSINESS_CLIENT')")
@@ -79,6 +91,15 @@ public class ShipmentController {
             @PathVariable Long id,
             @Valid @RequestBody OperatorAssignmentRequest request) {
         return ResponseEntity.ok(shipmentService.assignOperator(id, request.getOperatorId()));
+    }
+
+    @PatchMapping("/{id}/status")
+    @PreAuthorize("hasAnyRole('LOGISTICS_OPERATOR', 'ADMINISTRATOR')")
+    public ResponseEntity<TrackingEventResponse> updateStatus(
+            @PathVariable Long id,
+            @Valid @RequestBody TrackingEventRequest request
+    ) {
+        return ResponseEntity.ok(trackingEventService.addTrackingEvent(id, request));
     }
 
     @DeleteMapping("/{id}")

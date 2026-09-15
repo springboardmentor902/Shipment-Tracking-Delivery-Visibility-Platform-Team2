@@ -24,7 +24,7 @@ export default function PublicTracker({
         <h1>Track every delivery with confidence.</h1>
         <p>Enter a tracking number to see the latest shipment status, route preview, and delivery milestones.</p>
         <div className="public-track-form">
-          <input value={trackingNumber} onChange={(event) => onTrackingNumberChange(event.target.value)} placeholder="Enter tracking number or shipment ID" aria-label="Tracking number" />
+          <input value={trackingNumber} onChange={(event) => onTrackingNumberChange(event.target.value)} placeholder="Enter tracking number" aria-label="Tracking number" />
           <button onClick={onTrack}>Track shipment</button>
         </div>
         {message && <p className="message">{message}</p>}

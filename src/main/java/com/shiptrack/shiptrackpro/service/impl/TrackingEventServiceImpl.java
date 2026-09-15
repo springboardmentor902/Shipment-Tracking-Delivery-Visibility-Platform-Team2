@@ -14,6 +14,7 @@ import com.shiptrack.shiptrackpro.service.ShipmentAccessService;
 import com.shiptrack.shiptrackpro.service.TrackingEventService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
+import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
@@ -21,10 +22,25 @@ import org.springframework.web.server.ResponseStatusException;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
+import java.util.Set;
 
 @Service
 @RequiredArgsConstructor
 public class TrackingEventServiceImpl implements TrackingEventService {
+
+    private static final Map<ShipmentStatus, Set<ShipmentStatus>> ALLOWED_TRANSITIONS = Map.of(
+            ShipmentStatus.CREATED, Set.of(ShipmentStatus.PICKED_UP, ShipmentStatus.CANCELLED),
+            ShipmentStatus.PICKED_UP, Set.of(ShipmentStatus.IN_TRANSIT, ShipmentStatus.CANCELLED),
+            ShipmentStatus.IN_TRANSIT, Set.of(ShipmentStatus.OUT_FOR_DELIVERY,
+                    ShipmentStatus.FAILED_DELIVERY, ShipmentStatus.CANCELLED),
+            ShipmentStatus.OUT_FOR_DELIVERY, Set.of(ShipmentStatus.DELIVERED,
+                    ShipmentStatus.FAILED_DELIVERY, ShipmentStatus.CANCELLED),
+            ShipmentStatus.FAILED_DELIVERY, Set.of(ShipmentStatus.OUT_FOR_DELIVERY,
+                    ShipmentStatus.CANCELLED),
+            ShipmentStatus.DELIVERED, Set.of(),
+            ShipmentStatus.CANCELLED, Set.of()
+    );
 
     private final TrackingEventRepository trackingEventRepository;
     private final ShipmentRepository shipmentRepository;
@@ -34,6 +50,7 @@ public class TrackingEventServiceImpl implements TrackingEventService {
 
     @Override
     @Transactional
+    @CacheEvict(cacheNames = {"customerAnalytics", "businessAnalytics", "adminAnalytics"}, allEntries = true)
     public TrackingEventResponse addTrackingEvent(
             Long shipmentId,
             TrackingEventRequest request
@@ -43,6 +60,7 @@ public class TrackingEventServiceImpl implements TrackingEventService {
         User currentUser = shipmentAccessService.currentUser();
 
         String status = normalizeShipmentStatus(request.getStatus());
+        validateStatusTransition(shipment.getStatus(), status);
         TrackingEvent event = TrackingEvent.builder()
                 .shipment(shipment)
                 .updatedBy(currentUser)
@@ -103,6 +121,18 @@ public class TrackingEventServiceImpl implements TrackingEventService {
                     HttpStatus.BAD_REQUEST,
                     "Invalid shipment status: " + suppliedStatus
             );
+        }
+    }
+
+    private void validateStatusTransition(String currentValue, String requestedValue) {
+        ShipmentStatus current = ShipmentStatus.valueOf(currentValue.toUpperCase(Locale.ROOT));
+        ShipmentStatus requested = ShipmentStatus.valueOf(requestedValue);
+        if (current == requested) {
+            return;
+        }
+        if (!ALLOWED_TRANSITIONS.getOrDefault(current, Set.of()).contains(requested)) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT,
+                    "Shipment status cannot move from " + current + " to " + requested);
         }
     }
 

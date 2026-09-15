@@ -7,6 +7,8 @@ type Props = {
   role?: string;
   onOpenAuth: () => void;
   onLogout: () => void;
+  unreadCount?: number;
+  onOpenNotifications?: () => void;
 };
 
 export default function Navbar({
@@ -14,6 +16,8 @@ export default function Navbar({
   role,
   onOpenAuth,
   onLogout,
+  unreadCount = 0,
+  onOpenNotifications,
 }: Props) {
   const roleLabel = role ? role.toLowerCase().replaceAll("_", " ").replace(/\b\w/g, (letter) => letter.toUpperCase()) : "Not signed in";
 
@@ -45,6 +49,18 @@ export default function Navbar({
           <span className="theme-sun" aria-hidden="true">☀</span>
           <span className="theme-label">Theme</span>
         </button>
+        {userName && onOpenNotifications && (
+          <button
+            type="button"
+            className="notification-bell"
+            onClick={onOpenNotifications}
+            aria-label={`${unreadCount} unread notifications`}
+            title="Notifications"
+          >
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9"/><path d="M10 21h4"/></svg>
+            {unreadCount > 0 && <b>{unreadCount > 99 ? "99+" : unreadCount}</b>}
+          </button>
+        )}
         <button
           suppressHydrationWarning
           className="auth-button"
