@@ -15,7 +15,7 @@ public class AdminSeeder implements CommandLineRunner {
     private final UserRepository userRepository;
     private final PasswordEncoder passwordEncoder;
 
-    @Value("${ADMIN_EMAIL:}")
+    @Value("${ADMIN_EMAIL:admin@example.com}")
     private String adminEmail;
 
     @Value("${ADMIN_PASSWORD:}")
@@ -28,7 +28,21 @@ public class AdminSeeder implements CommandLineRunner {
             return;
         }
 
-        if (userRepository.existsByEmail(adminEmail)) {
+        var existingAdmin = userRepository.findByEmailIgnoreCase(adminEmail);
+        if (existingAdmin.isPresent()) {
+            User admin = existingAdmin.get();
+            boolean changed = false;
+            if (!"ADMINISTRATOR".equals(admin.getRole())) {
+                admin.setRole("ADMINISTRATOR");
+                changed = true;
+            }
+            if (!passwordEncoder.matches(adminPassword, admin.getPassword())) {
+                admin.setPassword(passwordEncoder.encode(adminPassword));
+                changed = true;
+            }
+            if (changed) {
+                userRepository.save(admin);
+            }
             return;
         }
 

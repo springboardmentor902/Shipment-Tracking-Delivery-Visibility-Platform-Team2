@@ -1,4 +1,4 @@
-export type DashboardTab = "overview" | "tracking" | "management" | "pod" | "analytics" | "notifications";
+export type DashboardTab = "overview" | "tracking" | "management" | "pod" | "analytics" | "notifications" | "team";
 
 const tabs: Array<{ id: DashboardTab; label: string; roles: string[] }> = [
   { id: "overview", label: "Overview", roles: ["CUSTOMER", "BUSINESS_CLIENT", "LOGISTICS_OPERATOR", "ADMINISTRATOR", "SUPPORT_AGENT"] },
@@ -7,6 +7,7 @@ const tabs: Array<{ id: DashboardTab; label: string; roles: string[] }> = [
   { id: "management", label: "Shipment Management", roles: ["CUSTOMER", "BUSINESS_CLIENT", "LOGISTICS_OPERATOR", "ADMINISTRATOR"] },
   { id: "pod", label: "Proof of Delivery", roles: ["LOGISTICS_OPERATOR", "ADMINISTRATOR", "SUPPORT_AGENT"] },
   { id: "analytics", label: "Analytics & Reports", roles: ["BUSINESS_CLIENT", "ADMINISTRATOR", "SUPPORT_AGENT"] },
+  { id: "team", label: "Team Management", roles: ["ADMINISTRATOR"] },
 ];
 
 export default function DashboardTabs({ activeTab, onChange, role = "CUSTOMER" }: { activeTab: DashboardTab; onChange: (tab: DashboardTab) => void; role?: string }) {

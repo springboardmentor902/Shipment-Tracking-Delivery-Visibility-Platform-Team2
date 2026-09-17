@@ -4,8 +4,8 @@ import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import type { CircleMarker as LeafletCircleMarker, Map as LeafletMap } from "leaflet";
 import Layout from "../src/components/Layout";
 import AnalyticsDashboard from "../src/components/AnalyticsDashboard";
+import AdminUserRoleManager, { type AdminUser } from "../src/components/AdminUserRoleManager";
 import AuthModal from "../src/components/AuthModal";
-import type { RegistrationRole } from "../src/components/AuthModal";
 import LoadingSkeleton from "../src/components/LoadingSkeleton";
 import PodVerificationQueue from "../src/components/PodVerificationQueue";
 import PublicTracker from "../src/components/PublicTracker";
@@ -23,7 +23,7 @@ import type { DashboardTab } from "../src/types/dashboard";
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8081";
 
 type PackageItem = { description: string; quantity: number; fragile: boolean };
-type Shipment = { id: number; trackingNumber: string; status: string; priority?: string; pickupAddress: string; deliveryAddress: string; pickupLatitude?: number; pickupLongitude?: number; deliveryLatitude?: number; deliveryLongitude?: number; packages: PackageItem[]; createdAt?: string; estimatedDeliveryDate?: string };
+type Shipment = { id: number; trackingNumber: string; status: string; priority?: string; assignedOperatorId?: number; pickupAddress: string; deliveryAddress: string; pickupLatitude?: number; pickupLongitude?: number; deliveryLatitude?: number; deliveryLongitude?: number; packages: PackageItem[]; createdAt?: string; estimatedDeliveryDate?: string };
 type Eta = { predictedDeliveryTime: string; delayRiskScore: number; confidenceScore: number; factors: string; estimatedRemainingMinutes?: number; manuallyAdjusted?: boolean; overrideReason?: string };
 type TrackingEvent = { id: number; status: string; location?: string; eventTimestamp: string };
 type PublicTracking = { trackingNumber: string; status: string; estimatedDeliveryDate?: string; actualDeliveryDate?: string; events: TrackingEvent[] };
@@ -292,7 +292,7 @@ export default function Home() {
   const [registerName, setRegisterName] = useState("");
   const [registerEmail, setRegisterEmail] = useState("");
   const [registerPassword, setRegisterPassword] = useState("");
-  const [registerRole, setRegisterRole] = useState<RegistrationRole>("CUSTOMER");
+  const registerRole = "CUSTOMER";
   const [shipmentId, setShipmentId] = useState("");
   const [shipment, setShipment] = useState<Shipment>();
   const [eta, setEta] = useState<Eta>();
@@ -306,10 +306,13 @@ export default function Home() {
   const [overviewStats, setOverviewStats] = useState<OverviewStats>();
   const [adminShipments, setAdminShipments] = useState<Shipment[]>([]);
   const [loadingAdminShipments, setLoadingAdminShipments] = useState(false);
+  const [adminUsers, setAdminUsers] = useState<AdminUser[]>([]);
+  const [loadingAdminUsers, setLoadingAdminUsers] = useState(false);
+  const [updatingUserId, setUpdatingUserId] = useState<number>();
+  const [assigningOperator, setAssigningOperator] = useState(false);
   const [drilldown, setDrilldown] = useState<DrilldownCategory>();
   const [drilldownShipments, setDrilldownShipments] = useState<ShipmentWithRisk[]>([]);
   const [drilldownLoading, setDrilldownLoading] = useState(false);
-  const [message, setMessage] = useState("Create an account, then sign in to manage your shipments.");
   const [packages, setPackages] = useState<PackageItem[]>([{ description: "", quantity: 1, fragile: false }]);
   const [podFile, setPodFile] = useState<File>();
   const [recipient, setRecipient] = useState("");
@@ -354,7 +357,6 @@ export default function Home() {
   );
 
   function showToast(text: string, tone: "success" | "error" | "info" = "info") {
-    setMessage(text);
     setToast({ text, tone });
   }
 
@@ -375,7 +377,10 @@ export default function Home() {
       setToken(result.token);
       setCurrentUser(result.user);
       void loadOverviewStats(result.token, result.user);
-      if (result.user.role === "ADMINISTRATOR") void loadAdminShipments(result.token);
+      if (result.user.role === "ADMINISTRATOR") {
+        void loadAdminShipments(result.token);
+        void loadAdminUsers(result.token);
+      }
       showToast(`Welcome, ${result.user.fullName}.`, "success");
       setShowAuth(false);
     } catch (error) {
@@ -400,8 +405,7 @@ export default function Home() {
       });
       setLoginEmail(registerEmail);
       setLoginPassword(registerPassword);
-      const roleLabel = registerRole === "BUSINESS_CLIENT" ? "Business Client" : "Customer";
-      const text = `${roleLabel} account created. You can now sign in.`;
+      const text = "Customer account created. You can now sign in.";
       setAuthFeedback({ text, tone: "success" });
       showToast(text, "success");
       setAuthMode("login");
@@ -424,6 +428,7 @@ export default function Home() {
     setNotifications([]);
     setOverviewStats(undefined);
     setAdminShipments([]);
+    setAdminUsers([]);
     setActiveTab("overview");
     setShowAuth(false);
     setLoginPassword("");
@@ -432,6 +437,7 @@ export default function Home() {
 
   function changeTab(tab: DashboardTab) {
     setActiveTab(tab);
+    if (tab === "team" && currentUser?.role === "ADMINISTRATOR") void loadAdminUsers();
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
@@ -475,10 +481,56 @@ export default function Home() {
     }
   }
 
+  async function loadAdminUsers(authToken = token) {
+    if (!authToken) return;
+    setLoadingAdminUsers(true);
+    try {
+      setAdminUsers(await request<AdminUser[]>("/api/admin/users", authToken));
+    } catch (error) {
+      showToast(errorMessage(error, "Could not load user accounts."), "error");
+    } finally {
+      setLoadingAdminUsers(false);
+    }
+  }
+
+  async function updateUserRole(userId: number, newRole: string) {
+    setUpdatingUserId(userId);
+    try {
+      const updatedUser = await request<AdminUser>(`/api/admin/users/${userId}/role`, token, {
+        method: "PUT",
+        body: JSON.stringify({ role: newRole }),
+      });
+      setAdminUsers((users) => users.map((user) => user.id === updatedUser.id ? updatedUser : user));
+      showToast(`${updatedUser.fullName} is now a ${updatedUser.role.toLowerCase().replaceAll("_", " ")}.`, "success");
+    } catch (error) {
+      showToast(errorMessage(error, "Could not update this account role."), "error");
+    } finally {
+      setUpdatingUserId(undefined);
+    }
+  }
+
   async function selectAdminShipment(item: Shipment) {
     setShipmentId(String(item.id));
     await loadShipment(true, String(item.id));
     showToast(`${item.trackingNumber} is ready for an Admin update.`, "success");
+  }
+
+  async function assignShipmentOperator(operatorId: number) {
+    if (!shipment || !operatorId) return;
+    setAssigningOperator(true);
+    try {
+      const updatedShipment = await request<Shipment>(`/api/shipments/${shipment.id}/operator`, token, {
+        method: "PATCH",
+        body: JSON.stringify({ operatorId }),
+      });
+      setShipment(updatedShipment);
+      setAdminShipments((shipments) => shipments.map((item) => item.id === updatedShipment.id ? updatedShipment : item));
+      showToast("Logistics Operator assigned. They can now submit delivery proof for this shipment.", "success");
+    } catch (error) {
+      showToast(errorMessage(error, "Could not assign the Logistics Operator."), "error");
+    } finally {
+      setAssigningOperator(false);
+    }
   }
 
   async function openDrilldown(category: DrilldownCategory) {
@@ -723,13 +775,13 @@ export default function Home() {
     ?? overviewStats?.delayedShipmentCount
     ?? overviewStats?.statusBreakdown?.DELAYED
     ?? (eta?.delayRiskScore && eta.delayRiskScore >= 7 ? 1 : 0);
-  const authModal = showAuth && <AuthModal mode={authMode} onModeChange={(mode) => { setAuthMode(mode); setAuthFeedback(undefined); }} onClose={() => { setShowAuth(false); setAuthFeedback(undefined); }} onLogin={login} onRegister={registerUser} loginEmail={loginEmail} loginPassword={loginPassword} registerName={registerName} registerEmail={registerEmail} registerPassword={registerPassword} registerRole={registerRole} setLoginEmail={setLoginEmail} setLoginPassword={setLoginPassword} setRegisterName={setRegisterName} setRegisterEmail={setRegisterEmail} setRegisterPassword={setRegisterPassword} setRegisterRole={setRegisterRole} feedback={authFeedback} />;
+  const authModal = showAuth && <AuthModal mode={authMode} onModeChange={(mode) => { setAuthMode(mode); setAuthFeedback(undefined); }} onClose={() => { setShowAuth(false); setAuthFeedback(undefined); }} onLogin={login} onRegister={registerUser} loginEmail={loginEmail} loginPassword={loginPassword} registerName={registerName} registerEmail={registerEmail} registerPassword={registerPassword} setLoginEmail={setLoginEmail} setLoginPassword={setLoginPassword} setRegisterName={setRegisterName} setRegisterEmail={setRegisterEmail} setRegisterPassword={setRegisterPassword} feedback={authFeedback} />;
 
   if (!token) {
     return <Layout userName={currentUser?.fullName} role={role} activeTab={activeTab} onTabChange={changeTab} onOpenAuth={() => setShowAuth(true)} onLogout={logout}>
-      <section className="hero-section"><div><p className="eyebrow">SHIPTRACK PRO</p><h1>Shipment tracking, simplified.</h1><p className="subtitle">Follow every delivery from pickup to proof of delivery.</p></div><div className="hero-status"><span className="status-dot" /> Public tracking</div></section>
+      <section className="hero-section"><div><p className="eyebrow">SHIPTRACK PRO</p><h1>Shipment tracking, simplified.</h1><p className="subtitle">Follow every delivery from pickup to proof of delivery.</p></div><div className="hero-status"><span className="status-dot" /> Delivery visibility</div></section>
       {toast && <div className={`toast ${toast.tone}`} role="status">{toast.text}</div>}
-      <PublicTracker trackingNumber={shipmentId} onTrackingNumberChange={setShipmentId} onTrack={loadShipment} events={events} message={message} />
+      <PublicTracker />
       {authModal}
     </Layout>;
   }
@@ -758,9 +810,11 @@ export default function Home() {
       <SummaryCard label="Unread alerts" value={unreadCount} detail="Updates waiting for review" tone="rose" icon="◌" onClick={() => void openDrilldown("alerts")} />
     </section>}
 
+    {activeTab === "team" && role === "ADMINISTRATOR" && <AdminUserRoleManager users={adminUsers} loading={loadingAdminUsers} updatingUserId={updatingUserId} onRefresh={() => void loadAdminUsers()} onRoleChange={(userId, newRole) => void updateUserRole(userId, newRole)} />}
+
     {drilldown && <div className="modal-backdrop" role="presentation" onMouseDown={() => setDrilldown(undefined)}><section className="drilldown-modal" role="dialog" aria-modal="true" aria-label="Dashboard details" onMouseDown={(event) => event.stopPropagation()}><button type="button" className="drilldown-close" aria-label="Close details" onClick={() => setDrilldown(undefined)}>×</button><p className="eyebrow">DASHBOARD DETAILS</p><h2>{drilldown === "active" ? "Active shipments" : drilldown === "delivered" ? "Delivered orders" : drilldown === "attention" ? "Shipments needing attention" : "Unread alerts"}</h2><p className="subtitle">{drilldown === "active" ? "Created, picked up, in transit, or out for delivery." : drilldown === "delivered" ? "Only shipments that have been completed." : drilldown === "attention" ? "Delayed shipments and shipments with a delay-risk score of 7 or higher." : "Only alerts you have not read yet."}</p>{drilldownLoading ? <LoadingSkeleton /> : drilldown === "alerts" ? <div className="drilldown-list">{notifications.filter((item) => !item.readAt).map((item) => <article className="drilldown-item" key={item.id}><strong>{item.title}</strong><span>{item.message}</span>{item.shipmentId && <small>Shipment #{item.shipmentId}</small>}</article>)}{!notifications.some((item) => !item.readAt) && <p className="empty-state">There are no unread alerts.</p>}</div> : <div className="drilldown-list">{drilldownShipments.map((item) => <article className={`drilldown-item ${drilldown === "attention" ? "risk" : ""}`} key={item.id}><strong>{item.trackingNumber}<span className="chip">{item.status.replaceAll("_", " ")}</span></strong><span>{item.pickupAddress} → {item.deliveryAddress}</span><small>{item.priority && `${item.priority} priority · `}Created {item.createdAt ? new Date(item.createdAt).toLocaleString() : "date not available"}{item.delayRiskScore !== undefined && ` · Delay risk ${item.delayRiskScore}/10`}</small></article>)}{!drilldownShipments.length && <p className="empty-state">No matching shipments were found.</p>}</div>}</section></div>}
 
-    {(activeTab === "overview" || activeTab === "tracking") && <section className="card filter-card">
+    {activeTab === "tracking" && <section className="card filter-card">
       <div className="section-heading"><div><p className="eyebrow">FIND A SHIPMENT</p><h2>Search and filter</h2></div><span className="muted-label">Fast lookup</span></div>
       <SearchFilterBar value={shipmentId} status={searchStatus} date={searchDate} onValueChange={setShipmentId} onStatusChange={setSearchStatus} onDateChange={setSearchDate} onClear={() => setShipmentId("")} onSearch={loadShipment} />
     </section>}
@@ -786,13 +840,15 @@ export default function Home() {
       </>}
 
     {activeTab === "management" && (role === "LOGISTICS_OPERATOR" || role === "ADMINISTRATOR") && <ShipmentManagement>{role === "ADMINISTRATOR" && <section className="admin-control"><div className="section-heading"><div><p className="eyebrow">ADMIN CONTROL CENTER</p><h2>All shipments</h2><p>Choose any shipment to view its details, route, and timeline before publishing a new status.</p></div><button type="button" className="soft" onClick={() => void loadAdminShipments()}>{loadingAdminShipments ? "Loading..." : "Refresh shipment lists"}</button></div>{loadingAdminShipments ? <LoadingSkeleton /> : <div className="grid admin-shipment-lists"><section className="card"><h3>Current shipments</h3><p className="muted-label">Created, picked up, in transit, or out for delivery</p><div className="queue">{adminShipments.filter((item) => !["DELIVERED", "FAILED_DELIVERY", "CANCELLED"].includes(item.status)).map((item) => <button type="button" className={`queue-item ${shipment?.id === item.id ? "selected" : ""}`} key={item.id} onClick={() => void selectAdminShipment(item)}><strong>{item.trackingNumber}</strong><span>{item.pickupAddress} → {item.deliveryAddress}</span><small>Status: {item.status.replaceAll("_", " ")}</small></button>)}{!adminShipments.some((item) => !["DELIVERED", "FAILED_DELIVERY", "CANCELLED"].includes(item.status)) && <p className="empty-state">No current shipments.</p>}</div></section><section className="card"><h3>Shipment history</h3><p className="muted-label">Delivered, failed, or cancelled shipments</p><div className="queue">{adminShipments.filter((item) => ["DELIVERED", "FAILED_DELIVERY", "CANCELLED"].includes(item.status)).map((item) => <button type="button" className={`queue-item ${shipment?.id === item.id ? "selected" : ""}`} key={item.id} onClick={() => void selectAdminShipment(item)}><strong>{item.trackingNumber}</strong><span>{item.pickupAddress} → {item.deliveryAddress}</span><small>Status: {item.status.replaceAll("_", " ")}</small></button>)}{!adminShipments.some((item) => ["DELIVERED", "FAILED_DELIVERY", "CANCELLED"].includes(item.status)) && <p className="empty-state">No shipment history yet.</p>}</div></section></div>}</section>}
+
+      {role === "ADMINISTRATOR" && shipment && <section className="card operator-assignment"><div><p className="eyebrow">OPERATOR ASSIGNMENT</p><h2>Assign this shipment</h2><p>Select the Logistics Operator who will upload the delivery signature and photo.</p></div><select value={shipment.assignedOperatorId ?? ""} onChange={(event) => void assignShipmentOperator(Number(event.target.value))} disabled={assigningOperator}><option value="">Select a Logistics Operator</option>{adminUsers.filter((user) => user.role === "LOGISTICS_OPERATOR").map((user) => <option key={user.id} value={user.id}>{user.fullName} · {user.email}</option>)}</select>{!adminUsers.some((user) => user.role === "LOGISTICS_OPERATOR") && <p className="empty-state">Create a user, then assign them the Logistics Operator role in Team Management first.</p>}</section>}
       <section id="operations" className="grid"><form className="card form" onSubmit={createRoute}><h2>Admin/Operator: create or replace route</h2><p>Create a route after loading a shipment. Creating another route keeps the previous one in history and marks this one as current.</p><select value={trafficCondition} onChange={(event) => setTrafficCondition(event.target.value)}><option value="NORMAL">Normal traffic</option><option value="HEAVY">Heavy traffic</option><option value="LIGHT">Light traffic</option></select><button type="submit">Create route</button>{route && <p>Distance: <strong>{route.distanceKm ?? "Not available"}</strong> km<br />Estimated time: <strong>{route.estimatedTimeMinutes ?? "Not available"}</strong> minutes<br />{route.selectionReason && <small>{route.selectionReason}</small>}</p>}</form>
       <form className="card form" onSubmit={addTrackingEvent}><h2>Update shipment status</h2>{shipment ? <p>Selected shipment: <strong>{shipment.trackingNumber}</strong> · Current status: {statusLabel(shipment.status)}</p> : <p>Select a shipment from the Admin list, or load one above.</p>}<select value={trackingStatus} onChange={(event) => setTrackingStatus(event.target.value)} disabled={!shipment || !(STATUS_TRANSITIONS[shipment.status]?.length)}>{shipment && STATUS_TRANSITIONS[shipment.status]?.map((status) => <option value={status} key={status}>{statusLabel(status)}</option>)}{shipment && !STATUS_TRANSITIONS[shipment.status]?.length && <option value="">No further status change</option>}</select><input value={trackingLocation} onChange={(event) => setTrackingLocation(event.target.value)} placeholder="Current location, for example: Meerut" /><button type="submit" disabled={!shipment || !trackingStatus}>Publish status update</button><small>The customer receives an in-app notification and an email, and their delivery timeline refreshes automatically.</small></form>
       {role === "ADMINISTRATOR" && <form className="card form" onSubmit={overrideEta}><h2>Admin: adjust predicted arrival</h2><p>Use this when an operator reports a revised delivery time. The manual prediction is kept until an Admin changes it again.</p><input required type="datetime-local" value={etaOverrideTime} onChange={(event) => setEtaOverrideTime(event.target.value)} /><textarea value={etaOverrideReason} onChange={(event) => setEtaOverrideReason(event.target.value)} placeholder="Reason for this update (optional)" /><button type="submit">Update ETA prediction</button></form>}</section></ShipmentManagement>}
 
     {activeTab === "pod" && role === "LOGISTICS_OPERATOR" && <PodVerificationQueue><section className="grid"><section className="card"><h2>Complete delivery</h2>{pod ? <><p>Received by: <strong>{pod.deliveredToName}</strong></p><p>Verification: <span className="chip">{pod.verificationStatus}</span></p>{pod.deliveryNotes && <p>Notes: {pod.deliveryNotes}</p>}<div className="proof-images">{pod.signatureUrl && <ProtectedImage src={`${API_URL}${pod.signatureUrl}`} token={token} alt="Delivery signature" />}{pod.photoUrl && <ProtectedImage src={`${API_URL}${pod.photoUrl}`} token={token} alt="Delivery proof" />}</div></> : <form className="form" onSubmit={submitPod}><p>Load an assigned shipment and collect complete delivery proof.</p><input required value={recipient} onChange={(event) => setRecipient(event.target.value)} placeholder="Recipient name" /><label className="field-label">Recipient signature</label><SignaturePad ref={signatureRef} /><label className="field-label">Delivery photo</label><input required type="file" accept="image/*" onChange={(event) => setPodFile(event.target.files?.[0])} /><textarea value={deliveryNotes} onChange={(event) => setDeliveryNotes(event.target.value)} placeholder="Delivery notes (optional)" /><button type="submit">Complete delivery</button></form>}</section></section></PodVerificationQueue>}
 
-    {activeTab === "pod" && (role === "SUPPORT_AGENT" || role === "ADMINISTRATOR") && <PodVerificationQueue><section id="verification" className="grid"><section className="card"><h2>Proof verification queue</h2><p>Review delivery proofs waiting for approval.</p><button onClick={loadPendingProofs}>Load pending proofs</button>{!pendingProofs.length && <p>No pending proofs are loaded.</p>}<div className="queue">{pendingProofs.map((proof) => <button className="queue-item" key={proof.shipmentId} onClick={() => openProof(proof)}><strong>Shipment #{proof.shipmentId}</strong><span>Received by {proof.deliveredToName}</span><small>{proof.deliveredAt ? new Date(proof.deliveredAt).toLocaleString() : "Date not available"}</small></button>)}</div></section>
+    {activeTab === "pod" && (["SUPPORT_AGENT", "SUB_ADMINISTRATOR", "ADMINISTRATOR"].includes(role)) && <PodVerificationQueue><section id="verification" className="grid"><section className="card"><h2>Proof verification queue</h2><p>Review delivery proofs waiting for approval.</p><button onClick={loadPendingProofs}>Load pending proofs</button>{!pendingProofs.length && <p>No pending proofs are loaded.</p>}<div className="queue">{pendingProofs.map((proof) => <button className="queue-item" key={proof.shipmentId} onClick={() => openProof(proof)}><strong>Shipment #{proof.shipmentId}</strong><span>Received by {proof.deliveredToName}</span><small>{proof.deliveredAt ? new Date(proof.deliveredAt).toLocaleString() : "Date not available"}</small></button>)}</div></section>
       <section className="card"><h2>Proof review details</h2>{selectedProof ? <><p>Shipment: <strong>#{selectedProof.shipmentId}</strong></p><p>Received by: <strong>{selectedProof.deliveredToName}</strong></p>{selectedProof.deliveryNotes && <p>Notes: {selectedProof.deliveryNotes}</p>}<div className="proof-images">{selectedProof.signatureUrl && <ProtectedImage src={`${API_URL}${selectedProof.signatureUrl}`} token={token} alt="Full delivery signature" />}{selectedProof.photoUrl && <ProtectedImage src={`${API_URL}${selectedProof.photoUrl}`} token={token} alt="Full delivery photo" />}</div><div className="actions"><button onClick={() => verifyProof("VERIFIED")}>Approve proof</button><button className="danger" onClick={() => verifyProof("REJECTED")}>Reject proof</button></div></> : <p>Select a proof from the queue to see its signature and photo.</p>}</section></section></PodVerificationQueue>}
 
     {activeTab === "notifications" && <section className="module-view"><div className="module-heading"><p className="eyebrow">NOTIFICATIONS</p><h2>Notification center</h2><p>Review shipment updates and delivery alerts.</p></div><div className="notification-list">{notifications.map((item) => <button key={item.id} className={`notification-item ${item.readAt ? "read" : ""}`} onClick={() => markRead(item)}><strong>{item.title}</strong><span>{item.message}</span></button>)}{!notifications.length && <p className="empty-state">No notifications yet.</p>}</div></section>}

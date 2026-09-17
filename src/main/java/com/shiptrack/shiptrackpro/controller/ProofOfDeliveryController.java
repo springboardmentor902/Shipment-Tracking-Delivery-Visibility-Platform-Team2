@@ -40,7 +40,7 @@ public class ProofOfDeliveryController {
     }
 
     @PatchMapping("/{shipmentId}/verify")
-    @PreAuthorize("hasAnyRole('SUPPORT_AGENT', 'ADMINISTRATOR')")
+    @PreAuthorize("hasAnyRole('SUPPORT_AGENT', 'SUB_ADMINISTRATOR', 'ADMINISTRATOR')")
     public ResponseEntity<ProofOfDeliveryResponse> verify(
             @PathVariable Long shipmentId,
             @Valid @RequestBody VerifyProofOfDeliveryRequest request
@@ -49,19 +49,19 @@ public class ProofOfDeliveryController {
     }
 
     @GetMapping("/pending")
-    @PreAuthorize("hasAnyRole('SUPPORT_AGENT', 'ADMINISTRATOR')")
+    @PreAuthorize("hasAnyRole('SUPPORT_AGENT', 'SUB_ADMINISTRATOR', 'ADMINISTRATOR')")
     public ResponseEntity<List<ProofOfDeliveryResponse>> getPendingProofs() {
         return ResponseEntity.ok(proofOfDeliveryService.getPendingProofs());
     }
 
     @GetMapping("/{shipmentId}")
-    @PreAuthorize("hasAnyRole('CUSTOMER', 'BUSINESS_CLIENT', 'LOGISTICS_OPERATOR', 'SUPPORT_AGENT', 'ADMINISTRATOR')")
+    @PreAuthorize("hasAnyRole('CUSTOMER', 'BUSINESS_CLIENT', 'LOGISTICS_OPERATOR', 'SUPPORT_AGENT', 'SUB_ADMINISTRATOR', 'ADMINISTRATOR')")
     public ResponseEntity<ProofOfDeliveryResponse> getForShipment(@PathVariable Long shipmentId) {
         return ResponseEntity.ok(proofOfDeliveryService.getForShipment(shipmentId));
     }
 
     @GetMapping("/files/{fileName:.+}")
-    @PreAuthorize("hasAnyRole('CUSTOMER', 'BUSINESS_CLIENT', 'LOGISTICS_OPERATOR', 'SUPPORT_AGENT', 'ADMINISTRATOR')")
+    @PreAuthorize("hasAnyRole('CUSTOMER', 'BUSINESS_CLIENT', 'LOGISTICS_OPERATOR', 'SUPPORT_AGENT', 'SUB_ADMINISTRATOR', 'ADMINISTRATOR')")
     public ResponseEntity<Resource> getFile(@PathVariable String fileName) {
         Resource file = proofOfDeliveryService.loadAuthorizedFile(fileName);
         return ResponseEntity.ok()

@@ -53,11 +53,10 @@ public class UserServiceImpl implements UserService {
             );
         }
 
-        if (requestedRole != Role.CUSTOMER
-                && requestedRole != Role.BUSINESS_CLIENT) {
+        if (requestedRole != Role.CUSTOMER) {
             throw new ResponseStatusException(
                     HttpStatus.FORBIDDEN,
-                    "Only Customer and Business Client accounts can be created through public registration."
+                    "Only Customer accounts can be created through public registration."
             );
         }
 
@@ -160,15 +159,6 @@ public class UserServiceImpl implements UserService {
                     "Invalid role: " + newRole
                             + ". Must be one of: "
                             + Arrays.toString(Role.values())
-            );
-        }
-
-        if (role == Role.ADMINISTRATOR
-                && userRepository.existsByRole("ADMINISTRATOR")) {
-
-            throw new ResponseStatusException(
-                    HttpStatus.CONFLICT,
-                    "An administrator account already exists. Only one administrator is allowed."
             );
         }
 

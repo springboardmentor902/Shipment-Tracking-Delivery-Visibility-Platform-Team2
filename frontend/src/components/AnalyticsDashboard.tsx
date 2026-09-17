@@ -30,6 +30,7 @@ type AnalyticsData = {
   totalShipmentVolume?: number;
   activeShipments?: number;
   deliveredShipments?: number;
+  cancelledShipments?: number;
   failedDeliveries?: number;
   onTimeDeliveries?: number;
   onTimeDeliveryRate?: number;
@@ -115,7 +116,8 @@ export default function AnalyticsDashboard({
       } catch (requestError) {
         if (cancelled) return;
         if (axios.isAxiosError(requestError)) {
-          setError(requestError.response?.data?.message ?? "Could not load analytics.");
+          const responseData = requestError.response?.data as { message?: string; detail?: string } | undefined;
+          setError(responseData?.detail ?? responseData?.message ?? "Could not load analytics.");
         } else {
           setError("Could not load analytics.");
         }
@@ -173,6 +175,7 @@ export default function AnalyticsDashboard({
       </div>
       <div className="grid gap-4 sm:grid-cols-3">
         {role === "customer" && <MetricCard label="Tracking updates" value={data?.totalTrackingEvents ?? 0} />}
+        {role === "customer" && <MetricCard label="Cancelled shipments" value={data?.cancelledShipments ?? 0} />}
         {role === "business" && <MetricCard label="Delivery success" value={data?.deliverySuccessRate ?? 0} suffix="%" />}
         {role === "business" && <MetricCard label="At risk" value={data?.atRiskShipments ?? 0} />}
         {role === "business" && <MetricCard label="Failed deliveries" value={data?.failedDeliveries ?? 0} />}
