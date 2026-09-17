@@ -89,7 +89,7 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.POST, "/api/pod/**")
                         .hasRole("LOGISTICS_OPERATOR")
                         .requestMatchers(HttpMethod.PATCH, "/api/pod/**")
-                        .hasAnyRole("SUPPORT_AGENT", "ADMINISTRATOR")
+                        .hasAnyRole("SUPPORT_AGENT", "SUB_ADMINISTRATOR", "ADMINISTRATOR")
 
                         // Analytics and reports
                         .requestMatchers("/api/analytics/**", "/api/reports/**")

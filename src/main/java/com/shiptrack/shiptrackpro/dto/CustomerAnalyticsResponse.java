@@ -15,6 +15,7 @@ public class CustomerAnalyticsResponse implements Serializable {
     private long totalShipmentHistoryCount;
     private long activeShipments;
     private long deliveredShipments;
+    private long cancelledShipments;
     private long attentionRequired;
     private long totalTrackingEvents;
     private java.time.LocalDateTime lastTrackingUpdate;

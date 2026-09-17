@@ -4,7 +4,6 @@ import BrandLogo from "./BrandLogo";
 
 type Props = {
   userName?: string;
-  role?: string;
   onOpenAuth: () => void;
   onLogout: () => void;
   unreadCount?: number;
@@ -13,14 +12,11 @@ type Props = {
 
 export default function Navbar({
   userName,
-  role,
   onOpenAuth,
   onLogout,
   unreadCount = 0,
   onOpenNotifications,
 }: Props) {
-  const roleLabel = role ? role.toLowerCase().replaceAll("_", " ").replace(/\b\w/g, (letter) => letter.toUpperCase()) : "Not signed in";
-
   function toggleTheme() {
     const nextTheme = document.documentElement.dataset.theme === "dark" ? "light" : "dark";
     document.documentElement.dataset.theme = nextTheme;
@@ -68,10 +64,12 @@ export default function Navbar({
         >
           {userName ? "Log out" : "Login / Register"}
         </button>
-        <div className="profile">
-          <span className="avatar">{(userName?.[0] ?? "G").toUpperCase()}</span>
-          <div><strong>{userName ?? "Guest user"}</strong><span>{roleLabel}</span></div>
-        </div>
+        {userName && (
+          <div className="profile">
+            <span className="avatar">{userName[0].toUpperCase()}</span>
+            <div><strong>{userName}</strong></div>
+          </div>
+        )}
       </div>
     </header>
   );

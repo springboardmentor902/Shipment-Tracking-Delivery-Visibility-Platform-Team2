@@ -80,7 +80,7 @@ public class ShipmentAccessService {
     }
 
     public boolean isSupportAgent(User user) {
-        return currentUserService.hasRole(user, "SUPPORT_AGENT");
+        return currentUserService.hasAnyRole(user, "SUPPORT_AGENT", "SUB_ADMINISTRATOR");
     }
 
     public boolean isLogisticsOperator(User user) {

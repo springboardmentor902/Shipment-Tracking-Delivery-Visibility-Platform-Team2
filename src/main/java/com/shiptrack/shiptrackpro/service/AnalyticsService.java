@@ -44,6 +44,7 @@ public class AnalyticsService {
 
     private static final String IN_TRANSIT = "IN_TRANSIT";
     private static final String DELIVERED = "DELIVERED";
+    private static final String CANCELLED = "CANCELLED";
     private static final String DELAYED = "DELAYED";
 
     private final ShipmentRepository shipmentRepository;
@@ -66,6 +67,7 @@ public class AnalyticsService {
                 .totalShipmentHistoryCount(shipments.size())
                 .activeShipments(countActiveShipments(shipments))
                 .deliveredShipments(countStatus(shipments, DELIVERED))
+                .cancelledShipments(countStatus(shipments, CANCELLED))
                 .attentionRequired(countAttentionRequired(shipments))
                 .totalTrackingEvents(totalTrackingEvents(shipments))
                 .lastTrackingUpdate(lastTrackingUpdate(shipments))
@@ -240,7 +242,7 @@ public class AnalyticsService {
 
     private void requireAdmin() {
         User currentUser = currentUserService.getRequiredCurrentUser();
-        if (!currentUserService.hasAnyRole(currentUser, "ADMINISTRATOR", "SUPPORT_AGENT")) {
+        if (!currentUserService.hasAnyRole(currentUser, "ADMINISTRATOR", "SUB_ADMINISTRATOR", "SUPPORT_AGENT")) {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN,
                     "Administrator access is required");
         }

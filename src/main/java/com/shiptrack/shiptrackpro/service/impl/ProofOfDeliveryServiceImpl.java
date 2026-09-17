@@ -45,10 +45,10 @@ public class ProofOfDeliveryServiceImpl implements ProofOfDeliveryService {
             throw new ResponseStatusException(HttpStatus.CONFLICT,
                     "Proof of delivery has already been submitted for this shipment");
         }
-        if ((request.getSignature() == null || request.getSignature().isEmpty())
-                && (request.getPhoto() == null || request.getPhoto().isEmpty())) {
+        if (request.getSignature() == null || request.getSignature().isEmpty()
+                || request.getPhoto() == null || request.getPhoto().isEmpty()) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
-                    "Upload a signature or delivery photo as proof");
+                    "Both a signature and delivery photo are required as proof");
         }
 
         ProofOfDelivery proof = ProofOfDelivery.builder()
