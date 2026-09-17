@@ -53,14 +53,6 @@ public class UserServiceImpl implements UserService {
             );
         }
 
-        if (requestedRole != Role.CUSTOMER
-                && requestedRole != Role.BUSINESS_CLIENT) {
-            throw new ResponseStatusException(
-                    HttpStatus.FORBIDDEN,
-                    "Only Customer and Business Client accounts can be created through public registration."
-            );
-        }
-
         User user = User.builder()
                 .fullName(request.getFullName())
                 .email(email)

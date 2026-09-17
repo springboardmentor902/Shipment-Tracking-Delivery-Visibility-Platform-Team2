@@ -400,7 +400,7 @@ export default function Home() {
       });
       setLoginEmail(registerEmail);
       setLoginPassword(registerPassword);
-      const roleLabel = registerRole === "BUSINESS_CLIENT" ? "Business Client" : "Customer";
+      const roleLabel = statusLabel(registerRole);
       const text = `${roleLabel} account created. You can now sign in.`;
       setAuthFeedback({ text, tone: "success" });
       showToast(text, "success");

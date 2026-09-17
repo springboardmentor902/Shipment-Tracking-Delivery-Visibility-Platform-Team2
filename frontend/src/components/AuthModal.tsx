@@ -2,7 +2,12 @@
 
 import { FormEvent } from "react";
 
-export type RegistrationRole = "CUSTOMER" | "BUSINESS_CLIENT";
+export type RegistrationRole =
+  | "CUSTOMER"
+  | "BUSINESS_CLIENT"
+  | "LOGISTICS_OPERATOR"
+  | "SUPPORT_AGENT"
+  | "ADMINISTRATOR";
 
 const roleDetails: Record<RegistrationRole, { label: string; description: string }> = {
   CUSTOMER: {
@@ -12,6 +17,18 @@ const roleDetails: Record<RegistrationRole, { label: string; description: string
   BUSINESS_CLIENT: {
     label: "Business Client",
     description: "Manage business shipments, analytics, and reports.",
+  },
+  LOGISTICS_OPERATOR: {
+    label: "Logistics Operator",
+    description: "Manage shipments, routes, tracking, and deliveries.",
+  },
+  SUPPORT_AGENT: {
+    label: "Support Agent",
+    description: "Help customers and verify proof of delivery.",
+  },
+  ADMINISTRATOR: {
+    label: "Administrator",
+    description: "Manage users and monitor the complete platform.",
   },
 };
 
@@ -76,7 +93,6 @@ export default function AuthModal(props: Props) {
               {roleDetails[props.registerRole].description}
             </p>
             <button type="submit">Create {roleDetails[props.registerRole].label.toLowerCase()} account</button>
-            <small>Operator, Support Agent, and Administrator roles are assigned internally.</small>
           </form>
         )}
       </section>
