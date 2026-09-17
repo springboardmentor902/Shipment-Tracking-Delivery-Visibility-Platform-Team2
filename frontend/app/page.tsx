@@ -405,7 +405,8 @@ export default function Home() {
       });
       setLoginEmail(registerEmail);
       setLoginPassword(registerPassword);
-      const text = "Customer account created. You can now sign in.";
+      const roleLabel = statusLabel(registerRole);
+      const text = `${roleLabel} account created. You can now sign in.`;
       setAuthFeedback({ text, tone: "success" });
       showToast(text, "success");
       setAuthMode("login");

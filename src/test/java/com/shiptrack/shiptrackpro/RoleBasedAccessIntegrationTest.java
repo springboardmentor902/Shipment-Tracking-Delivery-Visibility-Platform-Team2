@@ -99,31 +99,30 @@ class RoleBasedAccessIntegrationTest {
     }
 
     @Test
-    void publicRegistrationAllowsCustomerAndBusinessRolesOnly() throws Exception {
-        mockMvc.perform(post("/api/auth/register")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("""
-                                {
-                                  "fullName": "Business User",
-                                  "email": "new.business@example.com",
-                                  "password": "Password@123",
-                                  "role": "BUSINESS_CLIENT"
-                                }
-                                """))
-                .andExpect(status().isCreated())
-                .andExpect(jsonPath("$.role").value("BUSINESS_CLIENT"));
+    void publicRegistrationAllowsAllApplicationRoles() throws Exception {
+        List<String> roles = List.of(
+                "CUSTOMER",
+                "BUSINESS_CLIENT",
+                "LOGISTICS_OPERATOR",
+                "SUPPORT_AGENT",
+                "ADMINISTRATOR"
+        );
 
-        mockMvc.perform(post("/api/auth/register")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("""
-                                {
-                                  "fullName": "Self Assigned Operator",
-                                  "email": "self.operator@example.com",
-                                  "password": "Password@123",
-                                  "role": "LOGISTICS_OPERATOR"
-                                }
-                                """))
-                .andExpect(status().isForbidden());
+        for (int index = 0; index < roles.size(); index++) {
+            String role = roles.get(index);
+            mockMvc.perform(post("/api/auth/register")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content("""
+                                    {
+                                      "fullName": "New User",
+                                      "email": "new.user.%d@example.com",
+                                      "password": "Password@123",
+                                      "role": "%s"
+                                    }
+                                    """.formatted(index, role)))
+                    .andExpect(status().isCreated())
+                    .andExpect(jsonPath("$.role").value(role));
+        }
     }
 
     private User saveUser(String name, String email, String role) {
